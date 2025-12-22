@@ -4,7 +4,25 @@
 import axios, { AxiosInstance } from 'axios';
 import { getApiBaseUrl } from './env';
 
-const API_BASE_URL = getApiBaseUrl() || 'http://localhost:8080';
+// 获取API基础URL
+// 如果设置了VITE_API_BASE_URL，使用该值
+// 否则在开发模式下使用空字符串（走vite代理），生产模式下使用默认测试环境
+const getApiBaseUrlConfig = (): string => {
+  const envUrl = getApiBaseUrl();
+  if (envUrl) {
+    return envUrl;
+  }
+
+  // 开发模式下，如果没有设置VITE_API_BASE_URL，使用空字符串走vite代理
+  if (import.meta.env.DEV) {
+    return '';
+  }
+
+  // 生产模式下，默认使用测试环境
+  return 'https://43.156.247.73:8866';
+};
+
+const API_BASE_URL = getApiBaseUrlConfig();
 
 // 创建axios实例
 const api: AxiosInstance = axios.create({
