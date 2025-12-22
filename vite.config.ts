@@ -7,8 +7,35 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'https://43.156.247.73:8866',
+        target: 'https://43.156.247.73/polykms/',
         changeOrigin: true,
+        secure: false, // 忽略 SSL 证书验证（开发环境）
+        ws: false, // 禁用 WebSocket 代理
+        rewrite: (path) => path, // 保持路径不变，/api/v1/secrets -> /api/v1/secrets
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, req, res) => {
+            console.error('Proxy error:', err.message);
+            console.error('Request URL:', req.url);
+            if (!res.headersSent) {
+              res.writeHead(500, {
+                'Content-Type': 'text/plain',
+              });
+              res.end('Proxy error: ' + err.message);
+            }
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('→ Sending Request:', req.method, req.url);
+            console.log('→ Target URL:', proxyReq.path);
+            // 设置正确的 Host 头（HTTPS 默认端口 443）
+            proxyReq.setHeader('Host', '43.156.247.73');
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('← Received Response:', proxyRes.statusCode, req.url);
+            if (proxyRes.statusCode >= 400) {
+              console.error('← Error Response:', proxyRes.statusCode, req.url);
+            }
+          });
+        },
       },
     },
   },

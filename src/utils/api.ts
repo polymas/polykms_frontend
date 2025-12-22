@@ -19,7 +19,7 @@ const getApiBaseUrlConfig = (): string => {
   }
 
   // 生产模式下，默认使用测试环境
-  return 'https://43.156.247.73:8866';
+  return 'https://43.156.247.73/polykms/';
 };
 
 const API_BASE_URL = getApiBaseUrlConfig();
