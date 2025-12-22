@@ -2,7 +2,10 @@ import { isTestEnvironment } from '../utils/env';
 import './EnvironmentBanner.css';
 
 export default function EnvironmentBanner() {
-  if (!isTestEnvironment()) {
+  const isTest = isTestEnvironment();
+  
+  // 开发模式下，如果没有明确设置为 production，始终显示警告
+  if (!isTest) {
     return null;
   }
 
