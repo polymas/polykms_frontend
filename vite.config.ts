@@ -7,7 +7,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'https://43.156.247.73/polykms/',
+        target: 'https://api.polyking.site',
         changeOrigin: true,
         secure: false, // 忽略 SSL 证书验证（开发环境）
         ws: false, // 禁用 WebSocket 代理
@@ -26,8 +26,7 @@ export default defineConfig({
           proxy.on('proxyReq', (proxyReq, req, _res) => {
             console.log('→ Sending Request:', req.method, req.url);
             console.log('→ Target URL:', proxyReq.path);
-            // 设置正确的 Host 头（HTTPS 默认端口 443）
-            proxyReq.setHeader('Host', '43.156.247.73');
+            // changeOrigin: true 会自动设置正确的 Host 头，不需要手动设置
           });
           proxy.on('proxyRes', (proxyRes, req, _res) => {
             console.log('← Received Response:', proxyRes.statusCode, req.url);

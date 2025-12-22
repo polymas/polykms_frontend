@@ -19,7 +19,7 @@ const getApiBaseUrlConfig = (): string => {
   }
 
   // 生产模式下，默认使用测试环境
-  return 'https://43.156.247.73/polykms/';
+  return 'https://api.polyking.site';
 };
 
 const API_BASE_URL = getApiBaseUrlConfig();
@@ -46,7 +46,7 @@ api.interceptors.request.use(
   }
 );
 
-// 响应拦截器：处理401未授权
+// 响应拦截器：处理401未授权和405方法不允许
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -54,6 +54,18 @@ api.interceptors.response.use(
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
+
+    // 处理405方法不允许错误
+    if (error.response?.status === 405) {
+      console.error('405 Method Not Allowed:', {
+        method: error.config?.method?.toUpperCase(),
+        url: error.config?.url,
+        baseURL: error.config?.baseURL,
+        fullURL: error.config?.url ? `${error.config.baseURL}${error.config.url}` : 'unknown',
+      });
+      error.message = `请求方法不被允许: ${error.config?.method?.toUpperCase()} ${error.config?.url}`;
+    }
+
     return Promise.reject(error);
   }
 );

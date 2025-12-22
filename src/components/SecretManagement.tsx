@@ -24,9 +24,12 @@ export default function SecretManagement() {
     setError('');
     try {
       const response = await secretsAPI.listSecrets();
-      setSecrets(response.secrets);
+      // 确保 secrets 始终是数组，防止 undefined 错误
+      setSecrets(response?.secrets || []);
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || '加载密钥列表失败');
+      // 发生错误时，确保 secrets 是空数组
+      setSecrets([]);
     } finally {
       setLoading(false);
     }
@@ -180,7 +183,7 @@ export default function SecretManagement() {
         </div>
         {loading ? (
           <div className="loading">加载中...</div>
-        ) : secrets.length === 0 ? (
+        ) : !secrets || secrets.length === 0 ? (
           <div className="empty-state">暂无密钥</div>
         ) : (
           <div className="secrets-table">
