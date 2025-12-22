@@ -2,8 +2,9 @@
  * API服务层
  */
 import axios, { AxiosInstance } from 'axios';
+import { getApiBaseUrl } from './env';
 
-const API_BASE_URL = 'http://43.156.247.73:8866';
+const API_BASE_URL = getApiBaseUrl() || 'http://localhost:8080';
 
 // 创建axios实例
 const api: AxiosInstance = axios.create({

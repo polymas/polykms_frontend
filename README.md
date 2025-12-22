@@ -9,6 +9,8 @@
 - ✅ 批量上传密钥
 - ✅ 查询当前账户下的密钥列表
 - ✅ 获取密文密钥并解密显示
+- ✅ 环境版本支持（测试/生产环境）
+- ✅ 测试环境安全警示横幅
 
 ## 快速开始
 
@@ -19,13 +21,25 @@ cd frontend
 npm install
 ```
 
-### 2. 配置API地址
+### 2. 配置环境变量
 
-创建 `.env` 文件（可选，默认使用 `http://localhost:8080`）：
+创建 `.env` 文件（可选）：
 
 ```env
+# 环境配置（必须）
+# 可选值: test, production
+# 默认为 test（测试环境）
+# 测试环境会在页面顶部显示警告横幅
+VITE_ENVIRONMENT=test
+
+# API基础URL（可选，默认使用 http://localhost:8080）
+# 如果设置了代理，可以留空
 VITE_API_BASE_URL=http://localhost:8080
 ```
+
+**环境说明**：
+- **test（测试环境）**: 页面顶部会显示红色警告横幅，提醒用户不要使用真实私钥
+- **production（生产环境）**: 不显示警告横幅，用于正式生产环境
 
 ### 3. 启动开发服务器
 
@@ -114,9 +128,34 @@ frontend/
 3. 使用 `client_key` 通过 AES-GCM 解密得到明文
 4. 显示解密后的明文
 
+## 环境配置
+
+### 测试环境 vs 生产环境
+
+- **测试环境** (`VITE_ENVIRONMENT=test`):
+  - 页面顶部会显示红色警告横幅
+  - 提醒用户不要使用真实私钥
+  - 适合开发和测试使用
+
+- **生产环境** (`VITE_ENVIRONMENT=production`):
+  - 不显示警告横幅
+  - 用于正式生产环境
+  - 确保用户使用真实私钥时的安全性
+
+### 构建不同环境
+
+```bash
+# 构建测试环境
+VITE_ENVIRONMENT=test npm run build
+
+# 构建生产环境
+VITE_ENVIRONMENT=production npm run build
+```
+
 ## 注意事项
 
 - Token存储在localStorage中，刷新页面后仍保持登录状态
 - Token过期后需要重新登录
 - 密钥解密使用浏览器原生的 Web Crypto API，确保安全性
+- **重要**: 测试环境请勿使用真实私钥，数据可能被清理或重置
 

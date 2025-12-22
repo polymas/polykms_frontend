@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Login from './components/Login';
 import Register from './components/Register';
 import SecretManagement from './components/SecretManagement';
+import EnvironmentBanner from './components/EnvironmentBanner';
 import './App.css';
 
 type AuthMode = 'login' | 'register';
@@ -27,11 +28,17 @@ function App() {
   };
 
   if (isAuthenticated) {
-    return <SecretManagement />;
+    return (
+      <>
+        <EnvironmentBanner />
+        <SecretManagement />
+      </>
+    );
   }
 
   return (
     <div className="app">
+      <EnvironmentBanner />
       {authMode === 'login' ? (
         <Login
           onLoginSuccess={handleLoginSuccess}
