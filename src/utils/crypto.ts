@@ -1,5 +1,5 @@
 /**
- * JWT解析和密钥解密工具函数
+ * JWT解析和密钥加密解密工具函数
  */
 
 /**
@@ -78,6 +78,62 @@ export async function decryptSecret(
     return new TextDecoder().decode(decrypted);
   } catch (error) {
     throw new Error(`解密失败: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * 使用客户端密钥加密明文
+ * @param plaintext 要加密的明文
+ * @param clientKeyBase64 base64编码的客户端密钥
+ * @returns base64编码的密文（包含12字节nonce + 密文）
+ */
+export async function encryptSecret(
+  plaintext: string,
+  clientKeyBase64: string
+): Promise<string> {
+  try {
+    // 解码 base64 密钥
+    const key = Uint8Array.from(atob(clientKeyBase64), c => c.charCodeAt(0));
+
+    // 检查密钥长度
+    if (key.length !== 32) {
+      throw new Error(`客户端密钥长度错误: 期望 32 字节，实际 ${key.length} 字节`);
+    }
+
+    // 生成随机 nonce（12 字节）
+    const nonce = crypto.getRandomValues(new Uint8Array(12));
+
+    // 将明文转换为 Uint8Array
+    const plaintextBytes = new TextEncoder().encode(plaintext);
+
+    // 使用 Web Crypto API 进行 AES-GCM 加密
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      key,
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt']
+    );
+
+    const encrypted = await crypto.subtle.encrypt(
+      {
+        name: 'AES-GCM',
+        iv: nonce,
+      },
+      cryptoKey,
+      plaintextBytes
+    );
+
+    // 将 nonce 和密文合并，然后编码为 base64
+    const combined = new Uint8Array(nonce.length + encrypted.byteLength);
+    combined.set(nonce, 0);
+    combined.set(new Uint8Array(encrypted), nonce.length);
+
+    // 转换为 base64
+    const base64 = btoa(String.fromCharCode(...combined));
+    return base64;
+  } catch (error) {
+    throw new Error(`加密失败: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

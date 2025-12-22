@@ -3,6 +3,7 @@
  */
 import axios, { AxiosInstance } from 'axios';
 import { getApiBaseUrl } from './env';
+import { encryptSecret, parseJWT } from './crypto';
 
 // 获取API基础URL
 // 如果设置了VITE_API_BASE_URL，使用该值
@@ -176,15 +177,31 @@ export const authAPI = {
 
 export const secretsAPI = {
   /**
-   * 存储密钥
+   * 存储密钥（会对 value 进行加密）
    */
   storeSecret: async (data: StoreSecretRequest): Promise<StoreSecretResponse> => {
-    const response = await api.post<StoreSecretResponse>('/api/v1/secrets', data);
+    // 获取 token
+    const token = localStorage.getItem('token');
+    if (!token) {
+      throw new Error('未找到登录token，请先登录');
+    }
+
+    // 解析 JWT 获取 client_key
+    const clientKey = parseJWT(token);
+
+    // 加密 value
+    const encryptedValue = await encryptSecret(data.value, clientKey);
+
+    // 发送加密后的数据
+    const response = await api.post<StoreSecretResponse>('/api/v1/secrets', {
+      ...data,
+      value: encryptedValue,
+    });
     return response.data;
   },
 
   /**
-   * 批量存储密钥（使用批量接口）
+   * 批量存储密钥（使用批量接口，会对每个 value 进行加密）
    */
   storeSecretsBatch: async (
     secrets: StoreSecretRequest[]
@@ -193,9 +210,26 @@ export const secretsAPI = {
       return { success: [], failed: [] };
     }
 
+    // 获取 token
+    const token = localStorage.getItem('token');
+    if (!token) {
+      throw new Error('未找到登录token，请先登录');
+    }
+
+    // 解析 JWT 获取 client_key
+    const clientKey = parseJWT(token);
+
     try {
+      // 加密所有 secrets 的 value
+      const encryptedSecrets = await Promise.all(
+        secrets.map(async (secret) => ({
+          ...secret,
+          value: await encryptSecret(secret.value, clientKey),
+        }))
+      );
+
       const response = await api.post<StoreSecretsBatchResponse>('/api/v1/secrets/batch', {
-        secrets,
+        secrets: encryptedSecrets,
       });
 
       // 转换响应格式以保持兼容性
