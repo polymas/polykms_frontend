@@ -100,18 +100,34 @@ export interface Secret {
   id: number;
   user_id: number;
   key_name: string;
-  value?: string; // 加密后的密文（base64）
+  value?: string; // 加密后的密文（base64），兼容旧字段
   description: string;
   status: string;
   allocated_to?: string;
   allocated_at?: string;
+  server_number?: string; // 服务器编号
+  ip?: string; // IP地址
+  poly_address?: string; // poly地址
+  build_api?: string; // buildapi
+  secret?: string; // secret（加密后）
+  pass?: string; // pass（加密后）
+  private_key?: string; // 秘钥（加密后）
+  poly_wallet_type?: string; // poly钱包类型
   created_at: string;
 }
 
 export interface StoreSecretRequest {
   key_name: string;
-  value: string;
+  value?: string; // 兼容旧字段，如果设置了新字段则忽略
   description?: string;
+  server_number?: string; // 服务器编号
+  ip?: string; // IP地址
+  poly_address?: string; // poly地址
+  build_api?: string; // buildapi
+  secret?: string; // secret（需要加密）
+  pass?: string; // pass（需要加密）
+  private_key?: string; // 秘钥（需要加密）
+  poly_wallet_type?: string; // poly钱包类型
 }
 
 export interface StoreSecretResponse {
