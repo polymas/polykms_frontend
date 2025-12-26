@@ -1,7 +1,18 @@
 import { useState, useEffect } from 'react';
-import { secretsAPI, StoreSecretRequest, ListSecretsResponse } from '../utils/api';
-import { parseJWT, decryptSecret } from '../utils/crypto';
+import { secretsAPI, StoreSecretRequest, ListSecretsResponse, Secret } from '../utils/api';
+import { parseJWT, decryptSecret, encryptSecret } from '../utils/crypto';
 import './SecretManagement.css';
+
+interface DecryptedSecretData {
+  server_name?: string;
+  ip?: string;
+  proxy_address?: string;
+  api_key?: string;
+  api_secret?: string;
+  api_passphrase?: string;
+  private_key?: string;
+  wallet_type?: string;
+}
 
 export default function SecretManagement() {
   const [secrets, setSecrets] = useState<ListSecretsResponse['secrets']>([]);
@@ -13,9 +24,26 @@ export default function SecretManagement() {
   const [batchInput, setBatchInput] = useState('');
   const [uploading, setUploading] = useState(false);
 
+  // 单个密钥上传表单状态
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [formData, setFormData] = useState<StoreSecretRequest>({
+    key_name: '',
+    belong_to: '',
+    active: true,
+    server_name: '',
+    ip: '',
+    proxy_address: '',
+    api_key: '',
+    api_secret: '',
+    api_passphrase: '',
+    private_key: '',
+    wallet_type: '',
+  });
+  const [submitting, setSubmitting] = useState(false);
+
   // 查询和解密相关状态
   const [selectedKeyName, setSelectedKeyName] = useState('');
-  const [decryptedValue, setDecryptedValue] = useState('');
+  const [decryptedData, setDecryptedData] = useState<DecryptedSecretData | null>(null);
   const [decrypting, setDecrypting] = useState(false);
 
   // 加载密钥列表
@@ -39,7 +67,7 @@ export default function SecretManagement() {
     loadSecrets();
   }, []);
 
-  // 批量上传密钥
+  // 批量上传密钥（支持JSON格式）
   const handleBatchUpload = async () => {
     if (!batchInput.trim()) {
       setError('请输入密钥数据');
@@ -51,21 +79,75 @@ export default function SecretManagement() {
     setSuccess('');
 
     try {
-      // 解析输入：支持每行一个密钥，格式为 key_name:value 或 key_name:value:description
-      const lines = batchInput.trim().split('\n').filter(line => line.trim());
-      const secretsToUpload: StoreSecretRequest[] = [];
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('未找到登录token');
+        return;
+      }
+      const clientKey = parseJWT(token);
 
-      for (const line of lines) {
-        const parts = line.split(':').map(p => p.trim());
-        if (parts.length < 2) {
-          throw new Error(`格式错误: ${line}。格式应为 key_name:value 或 key_name:value:description`);
+      // 尝试解析为JSON数组
+      let secretsToUpload: StoreSecretRequest[] = [];
+      try {
+        const jsonData = JSON.parse(batchInput);
+        if (Array.isArray(jsonData)) {
+          // JSON数组格式
+          secretsToUpload = await Promise.all(
+            jsonData.map(async (item) => {
+              const secret: StoreSecretRequest = {
+                key_name: item.key_name || item.keyName || '',
+                belong_to: item.belong_to || item.belongTo || '',
+                active: item.active !== undefined ? item.active : true,
+                server_name: item.server_name || item.serverName || '',
+                ip: item.ip || item.IP || '',
+                proxy_address: item.proxy_address || item.proxyAddress || '',
+                wallet_type: item.wallet_type || item.walletType || '',
+              };
+
+              // 加密敏感字段
+              if (item.private_key || item.privateKey) {
+                secret.private_key = await encryptSecret(
+                  item.private_key || item.privateKey,
+                  clientKey
+                );
+              }
+              if (item.api_key || item.apiKey) {
+                secret.api_key = await encryptSecret(item.api_key || item.apiKey, clientKey);
+              }
+              if (item.api_secret || item.apiSecret) {
+                secret.api_secret = await encryptSecret(item.api_secret || item.apiSecret, clientKey);
+              }
+              if (item.api_passphrase || item.apiPassphrase) {
+                secret.api_passphrase = await encryptSecret(item.api_passphrase || item.apiPassphrase, clientKey);
+              }
+
+              return secret;
+            })
+          );
+        } else {
+          throw new Error('JSON格式错误：必须是数组');
         }
+      } catch (jsonError) {
+        // 如果不是JSON，尝试解析为旧格式：key_name:value 或 key_name:value:description
+        const lines = batchInput.trim().split('\n').filter(line => line.trim());
+        for (const line of lines) {
+          const parts = line.split(':').map(p => p.trim());
+          if (parts.length < 2) {
+            throw new Error(`格式错误: ${line}。支持JSON数组格式或 key_name:value:description 格式`);
+          }
 
-        secretsToUpload.push({
-          key_name: parts[0],
-          value: parts[1],
-          description: parts[2] || '',
-        });
+          const secret: StoreSecretRequest = {
+            key_name: parts[0],
+            description: parts[2] || '',
+          };
+
+          // 加密private_key
+          if (parts[1]) {
+            secret.private_key = await encryptSecret(parts[1], clientKey);
+          }
+
+          secretsToUpload.push(secret);
+        }
       }
 
       if (secretsToUpload.length === 0) {
@@ -95,22 +177,89 @@ export default function SecretManagement() {
     }
   };
 
+  // 单个密钥上传
+  const handleSubmitSecret = async () => {
+    if (!formData.key_name) {
+      setError('密钥名称不能为空');
+      return;
+    }
+
+    if (!formData.private_key && !formData.api_key && !formData.api_secret && !formData.api_passphrase) {
+      setError('至少需要提供私钥、api_key、api_secret或api_passphrase中的一个');
+      return;
+    }
+
+    setSubmitting(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('未找到登录token');
+        return;
+      }
+      const clientKey = parseJWT(token);
+
+      // 加密敏感字段
+      const secretToUpload: StoreSecretRequest = {
+        key_name: formData.key_name,
+        belong_to: formData.belong_to || '',
+        active: formData.active !== undefined ? formData.active : true,
+        server_name: formData.server_name || '',
+        ip: formData.ip || '',
+        proxy_address: formData.proxy_address || '',
+        wallet_type: formData.wallet_type || '',
+      };
+
+      if (formData.private_key) {
+        secretToUpload.private_key = await encryptSecret(formData.private_key, clientKey);
+      }
+      if (formData.api_key) {
+        secretToUpload.api_key = await encryptSecret(formData.api_key, clientKey);
+      }
+      if (formData.api_secret) {
+        secretToUpload.api_secret = await encryptSecret(formData.api_secret, clientKey);
+      }
+      if (formData.api_passphrase) {
+        secretToUpload.api_passphrase = await encryptSecret(formData.api_passphrase, clientKey);
+      }
+
+      await secretsAPI.storeSecret(secretToUpload);
+      setSuccess('密钥上传成功');
+      setFormData({
+        key_name: '',
+        belong_to: '',
+        active: true,
+        server_name: '',
+        ip: '',
+        proxy_address: '',
+        api_key: '',
+        api_secret: '',
+        api_passphrase: '',
+        private_key: '',
+        wallet_type: '',
+      });
+      setShowAddForm(false);
+      await loadSecrets();
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || '上传失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // 获取并解密密文
   const handleGetAndDecrypt = async (keyName: string) => {
     setSelectedKeyName(keyName);
-    setDecryptedValue('');
+    setDecryptedData(null);
     setDecrypting(true);
     setError('');
 
     try {
       // 获取加密的密钥
-      const secret = await secretsAPI.getSecret(keyName);
+      const secret: Secret = await secretsAPI.getSecret(keyName);
       
-      if (!secret.value) {
-        setError('该密钥没有值');
-        return;
-      }
-
       // 从localStorage获取token
       const token = localStorage.getItem('token');
       if (!token) {
@@ -121,9 +270,46 @@ export default function SecretManagement() {
       // 解析JWT获取client_key
       const clientKey = parseJWT(token);
 
-      // 解密
-      const decrypted = await decryptSecret(secret.value, clientKey);
-      setDecryptedValue(decrypted);
+      const decrypted: DecryptedSecretData = {};
+
+      // 解密各个敏感字段
+      if (secret.private_key) {
+        decrypted.private_key = await decryptSecret(secret.private_key, clientKey);
+      }
+      if (secret.api_key) {
+        decrypted.api_key = await decryptSecret(secret.api_key, clientKey);
+      }
+      if (secret.api_secret) {
+        decrypted.api_secret = await decryptSecret(secret.api_secret, clientKey);
+      }
+      if (secret.api_passphrase) {
+        decrypted.api_passphrase = await decryptSecret(secret.api_passphrase, clientKey);
+      }
+
+      // 如果使用旧格式的value字段
+      if (secret.value && !decrypted.private_key) {
+        try {
+          const decryptedValue = await decryptSecret(secret.value, clientKey);
+          // 尝试解析为JSON
+          try {
+            const parsed = JSON.parse(decryptedValue);
+            Object.assign(decrypted, parsed);
+          } catch {
+            // 如果不是JSON，作为private_key
+            decrypted.private_key = decryptedValue;
+          }
+        } catch (e) {
+          // 忽略解密错误
+        }
+      }
+
+      // 添加非敏感字段
+      decrypted.server_name = secret.server_name || '';
+      decrypted.ip = secret.ip || '';
+      decrypted.proxy_address = secret.proxy_address || '';
+      decrypted.wallet_type = secret.wallet_type || '';
+
+      setDecryptedData(decrypted);
       setSuccess('解密成功');
     } catch (err: any) {
       setError(err.message || '获取或解密失败');
@@ -150,18 +336,166 @@ export default function SecretManagement() {
       {error && <div className="alert alert-error">{error}</div>}
       {success && <div className="alert alert-success">{success}</div>}
 
+      {/* 单个密钥上传表单 */}
+      <div className="section">
+        <div className="section-header">
+          <h2>添加密钥</h2>
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="btn-secondary"
+          >
+            {showAddForm ? '收起' : '展开表单'}
+          </button>
+        </div>
+        {showAddForm && (
+          <div className="secret-form">
+            <div className="form-row">
+              <div className="form-group">
+                <label>密钥名称 *</label>
+                <input
+                  type="text"
+                  value={formData.key_name}
+                  onChange={(e) => setFormData({ ...formData, key_name: e.target.value })}
+                  placeholder="例如: server_001"
+                />
+              </div>
+              <div className="form-group">
+                <label>归属</label>
+                <input
+                  type="text"
+                  value={formData.belong_to}
+                  onChange={(e) => setFormData({ ...formData, belong_to: e.target.value })}
+                  placeholder="归属信息"
+                />
+              </div>
+              <div className="form-group">
+                <label>是否激活</label>
+                <input
+                  type="checkbox"
+                  checked={formData.active}
+                  onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
+                />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>服务器名称</label>
+                <input
+                  type="text"
+                  value={formData.server_name}
+                  onChange={(e) => setFormData({ ...formData, server_name: e.target.value })}
+                  placeholder="例如: server_001"
+                />
+              </div>
+              <div className="form-group">
+                <label>IP地址</label>
+                <input
+                  type="text"
+                  value={formData.ip}
+                  onChange={(e) => setFormData({ ...formData, ip: e.target.value })}
+                  placeholder="例如: 192.168.1.100"
+                />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>代理地址</label>
+                <input
+                  type="text"
+                  value={formData.proxy_address}
+                  onChange={(e) => setFormData({ ...formData, proxy_address: e.target.value })}
+                  placeholder="代理地址"
+                />
+              </div>
+              <div className="form-group">
+                <label>钱包类型</label>
+                <input
+                  type="text"
+                  value={formData.wallet_type}
+                  onChange={(e) => setFormData({ ...formData, wallet_type: e.target.value })}
+                  placeholder="例如: EOA"
+                />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>私钥 *</label>
+                <textarea
+                  value={formData.private_key}
+                  onChange={(e) => setFormData({ ...formData, private_key: e.target.value })}
+                  placeholder="私钥（将自动加密）"
+                  rows={2}
+                />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>API密钥</label>
+                <textarea
+                  value={formData.api_key}
+                  onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
+                  placeholder="API密钥（将自动加密）"
+                  rows={2}
+                />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>API密钥</label>
+                <textarea
+                  value={formData.api_secret}
+                  onChange={(e) => setFormData({ ...formData, api_secret: e.target.value })}
+                  placeholder="API密钥（将自动加密）"
+                  rows={2}
+                />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>API密码短语</label>
+                <input
+                  type="password"
+                  value={formData.api_passphrase}
+                  onChange={(e) => setFormData({ ...formData, api_passphrase: e.target.value })}
+                  placeholder="API密码短语（将自动加密）"
+                />
+              </div>
+            </div>
+            <button
+              onClick={handleSubmitSecret}
+              disabled={submitting || !formData.key_name}
+              className="btn-primary"
+            >
+              {submitting ? '提交中...' : '提交'}
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* 批量上传区域 */}
       <div className="section">
         <h2>批量上传密钥</h2>
         <p className="section-description">
-          每行一个密钥，格式：<code>key_name:value</code> 或 <code>key_name:value:description</code>
+          支持JSON数组格式或旧格式（每行一个密钥）：
+          <br />
+          <code>key_name:value:description</code> 或 JSON数组格式
         </p>
         <textarea
           className="batch-input"
           value={batchInput}
           onChange={(e) => setBatchInput(e.target.value)}
-          placeholder="例如：&#10;my_key1:0x1234567890abcdef&#10;my_key2:0xabcdef1234567890:这是第二个密钥"
-          rows={8}
+          placeholder={`JSON格式示例：
+[{
+  "key_name": "server_001",
+  "server_name": "server_001",
+  "ip": "192.168.1.100",
+  "private_key": "0x1234...",
+  "wallet_type": "EOA"
+}]
+
+或旧格式：
+my_key1:0x1234567890abcdef`}
+          rows={12}
           disabled={uploading}
         />
         <button
@@ -191,8 +525,12 @@ export default function SecretManagement() {
               <thead>
                 <tr>
                   <th>密钥名称</th>
-                  <th>描述</th>
-                  <th>状态</th>
+                  <th>服务器名称</th>
+                  <th>IP地址</th>
+                  <th>代理地址</th>
+                  <th>钱包类型</th>
+                  <th>归属</th>
+                  <th>激活</th>
                   <th>创建时间</th>
                   <th>操作</th>
                 </tr>
@@ -201,10 +539,16 @@ export default function SecretManagement() {
                 {secrets.map((secret) => (
                   <tr key={secret.id}>
                     <td>{secret.key_name}</td>
-                    <td>{secret.description || '-'}</td>
+                    <td>{secret.server_name || '-'}</td>
+                    <td>{secret.ip || '-'}</td>
+                    <td className="text-truncate" title={secret.proxy_address || ''}>
+                      {secret.proxy_address ? `${secret.proxy_address.substring(0, 20)}...` : '-'}
+                    </td>
+                    <td>{secret.wallet_type || '-'}</td>
+                    <td>{secret.belong_to || '-'}</td>
                     <td>
-                      <span className={`status-badge status-${secret.status}`}>
-                        {secret.status}
+                      <span className={`status-badge ${secret.active ? 'status-active' : 'status-inactive'}`}>
+                        {secret.active ? '激活' : '未激活'}
                       </span>
                     </td>
                     <td>{new Date(secret.created_at).toLocaleString('zh-CN')}</td>
@@ -228,20 +572,104 @@ export default function SecretManagement() {
       </div>
 
       {/* 解密结果显示 */}
-      {decryptedValue && (
+      {decryptedData && (
         <div className="section">
           <h2>解密结果 - {selectedKeyName}</h2>
-          <div className="decrypted-value">
-            <code>{decryptedValue}</code>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(decryptedValue);
-                setSuccess('已复制到剪贴板');
-              }}
-              className="btn-small"
-            >
-              复制
-            </button>
+          <div className="decrypted-data">
+            <div className="data-grid">
+              {decryptedData.server_name && (
+                <div className="data-item">
+                  <label>服务器名称:</label>
+                  <code>{decryptedData.server_name}</code>
+                </div>
+              )}
+              {decryptedData.ip && (
+                <div className="data-item">
+                  <label>IP地址:</label>
+                  <code>{decryptedData.ip}</code>
+                </div>
+              )}
+              {decryptedData.proxy_address && (
+                <div className="data-item">
+                  <label>代理地址:</label>
+                  <code>{decryptedData.proxy_address}</code>
+                </div>
+              )}
+              {decryptedData.wallet_type && (
+                <div className="data-item">
+                  <label>钱包类型:</label>
+                  <code>{decryptedData.wallet_type}</code>
+                </div>
+              )}
+              {decryptedData.private_key && (
+                <div className="data-item full-width">
+                  <label>私钥:</label>
+                  <div className="secret-value">
+                    <code>{decryptedData.private_key}</code>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(decryptedData.private_key!);
+                        setSuccess('已复制私钥到剪贴板');
+                      }}
+                      className="btn-small"
+                    >
+                      复制
+                    </button>
+                  </div>
+                </div>
+              )}
+              {decryptedData.api_key && (
+                <div className="data-item full-width">
+                  <label>API密钥:</label>
+                  <div className="secret-value">
+                    <code>{decryptedData.api_key}</code>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(decryptedData.api_key!);
+                        setSuccess('已复制API密钥到剪贴板');
+                      }}
+                      className="btn-small"
+                    >
+                      复制
+                    </button>
+                  </div>
+                </div>
+              )}
+              {decryptedData.api_secret && (
+                <div className="data-item full-width">
+                  <label>API密钥:</label>
+                  <div className="secret-value">
+                    <code>{decryptedData.api_secret}</code>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(decryptedData.api_secret!);
+                        setSuccess('已复制API密钥到剪贴板');
+                      }}
+                      className="btn-small"
+                    >
+                      复制
+                    </button>
+                  </div>
+                </div>
+              )}
+              {decryptedData.api_passphrase && (
+                <div className="data-item">
+                  <label>API密码短语:</label>
+                  <div className="secret-value">
+                    <code>{decryptedData.api_passphrase}</code>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(decryptedData.api_passphrase!);
+                        setSuccess('已复制API密码短语到剪贴板');
+                      }}
+                      className="btn-small"
+                    >
+                      复制
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -3,7 +3,6 @@
  */
 import axios, { AxiosInstance } from 'axios';
 import { getApiBaseUrl } from './env';
-import { encryptSecret, parseJWT } from './crypto';
 
 // 获取API基础URL
 // 如果设置了VITE_API_BASE_URL，使用该值
@@ -101,39 +100,38 @@ export interface Secret {
   user_id: number;
   key_name: string;
   value?: string; // 加密后的密文（base64），兼容旧字段
-  description: string;
-  status: string;
-  allocated_to?: string;
-  allocated_at?: string;
-  server_number?: string; // 服务器编号
+  belong_to?: string; // 归属
+  active?: boolean; // 是否激活
+  server_name?: string; // 服务器名称
   ip?: string; // IP地址
-  poly_address?: string; // poly地址
-  build_api?: string; // buildapi
-  secret?: string; // secret（加密后）
-  pass?: string; // pass（加密后）
-  private_key?: string; // 秘钥（加密后）
-  poly_wallet_type?: string; // poly钱包类型
+  proxy_address?: string; // 代理地址
+  private_key?: string; // 私钥（加密后）
+  api_key?: string; // API密钥（加密后）
+  api_secret?: string; // API密钥（加密后）
+  api_passphrase?: string; // API密码短语（加密后）
+  wallet_type?: string; // 钱包类型
   created_at: string;
 }
 
 export interface StoreSecretRequest {
   key_name: string;
   value?: string; // 兼容旧字段，如果设置了新字段则忽略
-  description?: string;
-  server_number?: string; // 服务器编号
+  belong_to?: string; // 归属
+  active?: boolean; // 是否激活
+  server_name?: string; // 服务器名称
   ip?: string; // IP地址
-  poly_address?: string; // poly地址
-  build_api?: string; // buildapi
-  secret?: string; // secret（需要加密）
-  pass?: string; // pass（需要加密）
-  private_key?: string; // 秘钥（需要加密）
-  poly_wallet_type?: string; // poly钱包类型
+  proxy_address?: string; // 代理地址
+  private_key?: string; // 私钥（需要加密）
+  api_key?: string; // API密钥（需要加密）
+  api_secret?: string; // API密钥（需要加密）
+  api_passphrase?: string; // API密码短语（需要加密）
+  wallet_type?: string; // 钱包类型
 }
 
 export interface StoreSecretResponse {
   id: number;
   key_name: string;
-  status: string;
+  active: boolean;
   message: string;
 }
 
@@ -145,7 +143,7 @@ export interface StoreSecretBatchResult {
   key_name: string;
   success: boolean;
   id?: number;
-  status?: string;
+  active?: boolean;
   error?: string;
 }
 
@@ -193,31 +191,16 @@ export const authAPI = {
 
 export const secretsAPI = {
   /**
-   * 存储密钥（会对 value 进行加密）
+   * 存储密钥（敏感字段需要在调用前已加密）
    */
   storeSecret: async (data: StoreSecretRequest): Promise<StoreSecretResponse> => {
-    // 获取 token
-    const token = localStorage.getItem('token');
-    if (!token) {
-      throw new Error('未找到登录token，请先登录');
-    }
-
-    // 解析 JWT 获取 client_key
-    const clientKey = parseJWT(token);
-
-    // 加密 value
-    const encryptedValue = await encryptSecret(data.value, clientKey);
-
-    // 发送加密后的数据
-    const response = await api.post<StoreSecretResponse>('/api/v1/secrets', {
-      ...data,
-      value: encryptedValue,
-    });
+    // 直接发送数据（敏感字段应该已经在组件中加密）
+    const response = await api.post<StoreSecretResponse>('/api/v1/secrets', data);
     return response.data;
   },
 
   /**
-   * 批量存储密钥（使用批量接口，会对每个 value 进行加密）
+   * 批量存储密钥（敏感字段需要在调用前已加密）
    */
   storeSecretsBatch: async (
     secrets: StoreSecretRequest[]
@@ -226,26 +209,10 @@ export const secretsAPI = {
       return { success: [], failed: [] };
     }
 
-    // 获取 token
-    const token = localStorage.getItem('token');
-    if (!token) {
-      throw new Error('未找到登录token，请先登录');
-    }
-
-    // 解析 JWT 获取 client_key
-    const clientKey = parseJWT(token);
-
     try {
-      // 加密所有 secrets 的 value
-      const encryptedSecrets = await Promise.all(
-        secrets.map(async (secret) => ({
-          ...secret,
-          value: await encryptSecret(secret.value, clientKey),
-        }))
-      );
-
+      // 直接发送数据（敏感字段应该已经在组件中加密）
       const response = await api.post<StoreSecretsBatchResponse>('/api/v1/secrets/batch', {
-        secrets: encryptedSecrets,
+        secrets,
       });
 
       // 转换响应格式以保持兼容性
@@ -257,7 +224,7 @@ export const secretsAPI = {
           success.push({
             id: result.id!,
             key_name: result.key_name,
-            status: result.status!,
+            active: result.active ?? true,
             message: '密钥存储成功',
           });
         } else {
