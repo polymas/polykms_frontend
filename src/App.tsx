@@ -1,40 +1,79 @@
 import { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import Login from './components/Login';
 import Register from './components/Register';
 import SecretManagement from './components/SecretManagement';
+import WorkerStatus from './components/WorkerStatus';
 import EnvironmentBanner from './components/EnvironmentBanner';
 import './App.css';
 
 type AuthMode = 'login' | 'register';
 
-function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authMode, setAuthMode] = useState<AuthMode>('login');
+// 受保护的路由组件
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const token = localStorage.getItem('token');
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+}
 
-  useEffect(() => {
-    // 检查是否有token
-    const token = localStorage.getItem('token');
-    if (token) {
-      setIsAuthenticated(true);
-    }
-  }, []);
+// 导航栏组件
+function Navigation() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    navigate('/login');
+  };
+
+  return (
+    <div className="app-navigation">
+      <div className="nav-tabs">
+        <Link
+          to="/secrets"
+          className={location.pathname === '/secrets' ? 'active' : ''}
+        >
+          密钥管理
+        </Link>
+        <Link
+          to="/workers"
+          className={location.pathname === '/workers' ? 'active' : ''}
+        >
+          工作机状态
+        </Link>
+      </div>
+      <button className="logout-button" onClick={handleLogout}>
+        退出登录
+      </button>
+    </div>
+  );
+}
+
+// 主布局组件
+function MainLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <EnvironmentBanner />
+      <Navigation />
+      {children}
+    </>
+  );
+}
+
+// 登录/注册页面组件
+function AuthPage() {
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const navigate = useNavigate();
 
   const handleLoginSuccess = () => {
-    setIsAuthenticated(true);
+    navigate('/secrets');
   };
 
   const handleRegisterSuccess = () => {
-    setIsAuthenticated(true);
+    navigate('/secrets');
   };
-
-  if (isAuthenticated) {
-    return (
-      <>
-        <EnvironmentBanner />
-        <SecretManagement />
-      </>
-    );
-  }
 
   return (
     <div className="app">
@@ -51,6 +90,44 @@ function App() {
         />
       )}
     </div>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        {/* 登录/注册路由 */}
+        <Route path="/login" element={<AuthPage />} />
+        <Route path="/register" element={<AuthPage />} />
+        
+        {/* 受保护的路由 */}
+        <Route
+          path="/secrets"
+          element={
+            <ProtectedRoute>
+              <MainLayout>
+                <SecretManagement />
+              </MainLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/workers"
+          element={
+            <ProtectedRoute>
+              <MainLayout>
+                <WorkerStatus />
+              </MainLayout>
+            </ProtectedRoute>
+          }
+        />
+        
+        {/* 默认重定向 */}
+        <Route path="/" element={<Navigate to="/secrets" replace />} />
+        <Route path="*" element={<Navigate to="/secrets" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 

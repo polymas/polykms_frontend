@@ -2,24 +2,32 @@
  * API服务层
  */
 import axios, { AxiosInstance } from 'axios';
-import { getApiBaseUrl } from './env';
+import { getApiBaseUrl, getEnvironment } from './env';
 
 // 获取API基础URL
-// 如果设置了VITE_API_BASE_URL，使用该值
-// 否则在开发模式下使用空字符串（走vite代理），生产模式下使用默认测试环境
+// 优先级：VITE_API_BASE_URL > 环境默认值
 const getApiBaseUrlConfig = (): string => {
+  // 如果明确设置了 VITE_API_BASE_URL，优先使用
   const envUrl = getApiBaseUrl();
   if (envUrl) {
     return envUrl;
   }
 
-  // 开发模式下，如果没有设置VITE_API_BASE_URL，使用空字符串走vite代理
-  if (import.meta.env.DEV) {
-    return '';
-  }
+  // 根据环境变量决定默认API地址
+  const environment = getEnvironment();
 
-  // 生产模式下，默认使用测试环境
-  return 'https://api.polyking.site';
+  if (environment === 'production') {
+    // 生产环境：使用生产API地址
+    return 'https://api.polyking.site';
+  } else {
+    // 测试环境：使用测试API地址
+    // 开发模式下，如果没有设置VITE_API_BASE_URL，使用空字符串走vite代理
+    if (import.meta.env.DEV) {
+      return '';
+    }
+    // 构建后的测试环境，使用测试API地址
+    return 'http://localhost:8866';
+  }
 };
 
 const API_BASE_URL = getApiBaseUrlConfig();
@@ -100,32 +108,32 @@ export interface Secret {
   user_id: number;
   key_name: string;
   value?: string; // 加密后的密文（base64），兼容旧字段
-  belong_to?: string; // 归属
   active?: boolean; // 是否激活
   server_name?: string; // 服务器名称
   ip?: string; // IP地址
   proxy_address?: string; // 代理地址
   private_key?: string; // 私钥（加密后）
-  api_key?: string; // API密钥（加密后）
+  api_key?: string; // API密钥（明文，后端明文存储）
   api_secret?: string; // API密钥（加密后）
-  api_passphrase?: string; // API密码短语（加密后）
+  api_passphrase?: string; // API密码短语（明文，后端明文存储）
   wallet_type?: string; // 钱包类型
+  signature_type?: number; // 签名类型
   created_at: string;
 }
 
 export interface StoreSecretRequest {
   key_name: string;
   value?: string; // 兼容旧字段，如果设置了新字段则忽略
-  belong_to?: string; // 归属
   active?: boolean; // 是否激活
   server_name?: string; // 服务器名称
   ip?: string; // IP地址
   proxy_address?: string; // 代理地址
-  private_key?: string; // 私钥（需要加密）
-  api_key?: string; // API密钥（需要加密）
-  api_secret?: string; // API密钥（需要加密）
-  api_passphrase?: string; // API密码短语（需要加密）
+  private_key?: string; // 私钥（需要加密，后端会再次加密存储）
+  api_key?: string; // API密钥（需要加密传输，但后端明文存储）
+  api_secret?: string; // API密钥（需要加密，后端会再次加密存储）
+  api_passphrase?: string; // API密码短语（需要加密传输，但后端明文存储）
   wallet_type?: string; // 钱包类型
+  signature_type?: number; // 签名类型
 }
 
 export interface StoreSecretResponse {
@@ -188,6 +196,34 @@ export const authAPI = {
     localStorage.removeItem('token');
   },
 };
+
+// 工作机状态相关类型
+export interface WorkerStatus {
+  id: number;
+  secret_id: number;
+  key_name: string;
+  ip: string;
+  server_name: string;
+  status: 'online' | 'offline' | 'error';
+  response_time: number;
+  status_code: number;
+  error_msg?: string;
+  data?: string; // JSON字符串格式的业务数据
+  checked_at: string;
+  created_at: string;
+}
+
+export interface WorkerStatusListResponse {
+  count: number;
+  statuses: WorkerStatus[];
+}
+
+export interface WorkerStatusHistoryResponse {
+  ip: string;
+  key_name: string;
+  count: number;
+  history: WorkerStatus[];
+}
 
 export const secretsAPI = {
   /**
@@ -270,6 +306,43 @@ export const secretsAPI = {
    */
   listSecrets: async (): Promise<ListSecretsResponse> => {
     const response = await api.get<ListSecretsResponse>('/api/v1/secrets');
+    return response.data;
+  },
+};
+
+export const workersAPI = {
+  /**
+   * 获取所有工作机的最新状态
+   */
+  getWorkerStatuses: async (): Promise<WorkerStatusListResponse> => {
+    const response = await api.get<WorkerStatusListResponse>('/api/v1/workers/status');
+    return response.data;
+  },
+
+  /**
+   * 获取指定工作机的最新状态
+   */
+  getWorkerStatus: async (ip: string): Promise<WorkerStatus> => {
+    const response = await api.get<WorkerStatus>(`/api/v1/workers/status/${encodeURIComponent(ip)}`);
+    return response.data;
+  },
+
+  /**
+   * 获取工作机状态历史
+   */
+  getWorkerStatusHistory: async (ip: string, limit?: number): Promise<WorkerStatusHistoryResponse> => {
+    const params = limit ? `?limit=${limit}` : '';
+    const response = await api.get<WorkerStatusHistoryResponse>(
+      `/api/v1/workers/status/${encodeURIComponent(ip)}/history${params}`
+    );
+    return response.data;
+  },
+
+  /**
+   * 手动触发检查工作机状态
+   */
+  checkWorkerStatus: async (ip: string): Promise<WorkerStatus> => {
+    const response = await api.post<WorkerStatus>(`/api/v1/workers/status/${encodeURIComponent(ip)}/check`);
     return response.data;
   },
 };

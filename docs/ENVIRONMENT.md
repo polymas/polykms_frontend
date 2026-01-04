@@ -17,8 +17,11 @@ PolyKMS前端应用支持两种环境模式：**测试环境**和**生产环境*
 VITE_ENVIRONMENT=test
 
 # API基础URL（可选）
-# 如果设置了代理，可以留空
-VITE_API_BASE_URL=http://localhost:8080
+# 如果设置了此值，将优先使用此值
+# 如果不设置，将根据 VITE_ENVIRONMENT 自动选择：
+#   - test: http://localhost:8866 (开发模式走vite代理)
+#   - production: https://api.polyking.site
+VITE_API_BASE_URL=
 ```
 
 ### 环境变量说明
@@ -26,7 +29,7 @@ VITE_API_BASE_URL=http://localhost:8080
 | 变量名 | 必需 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `VITE_ENVIRONMENT` | 是 | `test` | 环境类型：`test` 或 `production` |
-| `VITE_API_BASE_URL` | 否 | `http://localhost:8080` | API服务器地址 |
+| `VITE_API_BASE_URL` | 否 | 自动选择 | API服务器地址。如果不设置，将根据环境自动选择：<br/>- 测试环境：`http://localhost:8866`<br/>- 生产环境：`https://api.polyking.site` |
 
 ## 环境特性对比
 
@@ -62,12 +65,14 @@ VITE_API_BASE_URL=http://localhost:8080
 
 ## 配置示例
 
-### 开发环境配置
+### 开发环境配置（测试环境）
 
 `.env.development`:
 ```env
 VITE_ENVIRONMENT=test
-VITE_API_BASE_URL=http://localhost:8080
+# 开发模式下，不设置 VITE_API_BASE_URL 会走 vite 代理（指向 http://localhost:8866）
+# 如果需要直接指定，可以设置：
+# VITE_API_BASE_URL=http://localhost:8866
 ```
 
 ### 生产环境配置
@@ -75,7 +80,9 @@ VITE_API_BASE_URL=http://localhost:8080
 `.env.production`:
 ```env
 VITE_ENVIRONMENT=production
-VITE_API_BASE_URL=https://api.example.com
+# 生产环境会自动使用 https://api.polyking.site
+# 如果需要覆盖，可以设置：
+# VITE_API_BASE_URL=https://api.polyking.site
 ```
 
 ## 构建不同环境
