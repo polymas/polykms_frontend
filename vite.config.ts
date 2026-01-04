@@ -7,10 +7,8 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        // 开发模式下的代理目标
-        // 测试环境：http://localhost:8866
-        // 可以通过环境变量 VITE_PROXY_TARGET 覆盖（例如：https://api.polyking.site）
-        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8866',
+        // 开发模式下，固定代理到 http://localhost:8866
+        target: 'http://localhost:8866',
         changeOrigin: true,
         secure: false, // 忽略 SSL 证书验证（开发环境）
         ws: false, // 禁用 WebSocket 代理

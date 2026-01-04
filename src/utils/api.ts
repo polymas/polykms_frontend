@@ -2,32 +2,23 @@
  * API服务层
  */
 import axios, { AxiosInstance } from 'axios';
-import { getApiBaseUrl, getEnvironment } from './env';
+import { getBackendUrl } from './env';
 
 // 获取API基础URL
-// 优先级：VITE_API_BASE_URL > 环境默认值
+// 开发模式：固定走 vite 代理到 http://localhost:8866
+// 生产模式：使用环境变量 VITE_API_BASE_URL
 const getApiBaseUrlConfig = (): string => {
-  // 如果明确设置了 VITE_API_BASE_URL，优先使用
-  const envUrl = getApiBaseUrl();
-  if (envUrl) {
-    return envUrl;
+  // 开发模式下，固定走 vite 代理（返回空字符串）
+  if (import.meta.env.DEV) {
+    return '';
   }
 
-  // 根据环境变量决定默认API地址
-  const environment = getEnvironment();
-
-  if (environment === 'production') {
-    // 生产环境：使用生产API地址
-    return 'https://api.polyking.site';
-  } else {
-    // 测试环境：使用测试API地址
-    // 开发模式下，如果没有设置VITE_API_BASE_URL，使用空字符串走vite代理
-    if (import.meta.env.DEV) {
-      return '';
-    }
-    // 构建后的测试环境，使用测试API地址
-    return 'http://localhost:8866';
+  // 生产模式下，使用环境变量
+  const apiBaseUrl = getBackendUrl();
+  if (!apiBaseUrl) {
+    console.warn('生产环境未设置 VITE_API_BASE_URL，API 请求可能失败');
   }
+  return apiBaseUrl;
 };
 
 const API_BASE_URL = getApiBaseUrlConfig();

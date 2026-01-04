@@ -49,3 +49,12 @@ export function getApiBaseUrl(): string {
   return import.meta.env.VITE_API_BASE_URL || '';
 }
 
+/**
+ * 获取后端服务器地址（IP或域名）
+ * 仅在生产模式使用，开发模式固定走 vite 代理
+ * 使用 VITE_API_BASE_URL 环境变量
+ */
+export function getBackendUrl(): string {
+  return getApiBaseUrl();
+}
+
