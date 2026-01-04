@@ -49,6 +49,9 @@ export default function SecretManagement() {
   const [decryptedData, setDecryptedData] = useState<DecryptedSecretData | null>(null);
   const [decrypting, setDecrypting] = useState(false);
 
+  // Toast 提示状态
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
   // 敏感字段显示/隐藏状态
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -350,10 +353,24 @@ export default function SecretManagement() {
       setDecryptedData(decrypted);
       setSuccess('解密成功');
     } catch (err: any) {
-      setError(getSafeErrorMessage(err, '获取或解密失败'));
+      // 如果是403错误，显示toast提示
+      if (err?.response?.status === 403) {
+        showToast('无访问权限', 'error');
+        setError('');
+      } else {
+        setError(getSafeErrorMessage(err, '获取或解密失败'));
+      }
     } finally {
       setDecrypting(false);
     }
+  };
+
+  // 显示 Toast 提示
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(null);
+    }, 3000); // 3秒后自动消失
   };
 
   // 登出
@@ -370,6 +387,13 @@ export default function SecretManagement() {
           登出
         </button>
       </div>
+
+      {/* Toast 提示 */}
+      {toast && (
+        <div className={`toast toast-${toast.type}`}>
+          {toast.message}
+        </div>
+      )}
 
       {error && <div className="alert alert-error">{error}</div>}
       {success && <div className="alert alert-success">{success}</div>}
