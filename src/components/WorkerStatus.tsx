@@ -18,7 +18,7 @@ export default function WorkerStatus() {
     'position_count',
     'order_count',
     'balance',
-    'position_value',
+    'total_assets',
     'version_number',
   ]);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -45,7 +45,7 @@ export default function WorkerStatus() {
     { key: 'position_count', label: '持仓数' },
     { key: 'order_count', label: '挂单数' },
     { key: 'balance', label: 'USDC余额' },
-    { key: 'position_value', label: '仓位价值' },
+    { key: 'total_assets', label: '资产总额' },
     { key: 'version_number', label: '程序版本号' },
   ];
 
@@ -325,6 +325,7 @@ export default function WorkerStatus() {
           }
         }
       }
+      // total_assets 的计算在循环外统一处理
       if (fieldName === 'version_number') {
         // 匹配 version.number 或类似字段
         const lowerKey = key.toLowerCase();
@@ -343,7 +344,7 @@ export default function WorkerStatus() {
         }
       }
     }
-    // 对于 position_value 和 version_number，尝试从嵌套路径获取
+    // 对于 position_value 和 total_assets，尝试从嵌套路径获取
     if (fieldName === 'position_value') {
       const positions = businessData.positions || businessData.POSITIONS;
       if (positions && typeof positions === 'object') {
@@ -356,6 +357,70 @@ export default function WorkerStatus() {
           return String(posValue);
         }
       }
+    }
+    // 计算资产总额 = 仓位价值 + USDC余额
+    if (fieldName === 'total_assets') {
+      let positionValue = 0;
+      let balance = 0;
+      
+      // 获取仓位价值
+      const positions = businessData.positions || businessData.POSITIONS;
+      if (positions && typeof positions === 'object') {
+        const posValue = positions.value || positions.VALUE;
+        if (posValue !== undefined) {
+          const numValue = Number(posValue);
+          if (!isNaN(numValue)) {
+            positionValue = numValue;
+          }
+        }
+      }
+      // 如果没有从嵌套对象获取到，尝试从其他字段获取
+      if (positionValue === 0) {
+        for (const [key, value] of Object.entries(businessData)) {
+          const lowerKey = key.toLowerCase();
+          if (lowerKey === 'positions.value' || lowerKey === 'position.value' ||
+              key === 'positions.value' || key === 'POSITIONS.VALUE' ||
+              key === 'position.value' || key === 'POSITION.VALUE' ||
+              (key.includes('仓位') && key.includes('价值')) ||
+              (key.includes('持仓') && key.includes('价值')) ||
+              /position.*value/i.test(key)) {
+            const numValue = Number(value);
+            if (!isNaN(numValue)) {
+              positionValue = numValue;
+              break;
+            }
+          }
+        }
+      }
+      
+      // 获取USDC余额
+      for (const [key, value] of Object.entries(businessData)) {
+        const lowerKey = key.toLowerCase();
+        if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' || 
+            key === 'WALLET.USDC_BALANCE') {
+          const numValue = Number(value);
+          if (!isNaN(numValue)) {
+            balance = numValue;
+            break;
+          }
+        }
+        // 匹配包含 usdc 和 balance 的字段（排除 pol_balance）
+        if ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) && 
+            !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key)) {
+          const numValue = Number(value);
+          if (!isNaN(numValue)) {
+            balance = numValue;
+            break;
+          }
+        }
+      }
+      
+      // 计算资产总额
+      const totalAssets = positionValue + balance;
+      if (totalAssets > 0) {
+        return totalAssets.toFixed(2);
+      }
+      return '-';
     }
     if (fieldName === 'version_number') {
       const version = businessData.version || businessData.VERSION;
@@ -610,23 +675,23 @@ export default function WorkerStatus() {
 
   // 统计信息（基于过滤后的数据）
   const stats = React.useMemo(() => {
-    let totalPositionValue = 0;
+    let totalAssets = 0;
     let totalBalance = 0;
     
     filteredAndSortedStatuses.forEach((status) => {
       if (status.data) {
         const businessData = parseBusinessData(status.data);
         if (businessData) {
-          // 计算总仓位价值
-          const positionValue = getKeyMetricValue(status.data, 'position_value');
-          if (positionValue !== '-') {
-            const numValue = Number(positionValue);
+          // 计算资产总额（仓位价值 + USDC余额）
+          const assets = getKeyMetricValue(status.data, 'total_assets');
+          if (assets !== '-') {
+            const numValue = Number(assets);
             if (!isNaN(numValue)) {
-              totalPositionValue += numValue;
+              totalAssets += numValue;
             }
           }
           
-          // 计算总余额
+          // 计算总余额（用于单独显示）
           const balance = getKeyMetricValue(status.data, 'balance');
           if (balance !== '-') {
             const numValue = Number(balance);
@@ -643,7 +708,7 @@ export default function WorkerStatus() {
       online: filteredAndSortedStatuses.filter((s) => s.status === 'online').length,
       offline: filteredAndSortedStatuses.filter((s) => s.status === 'offline').length,
       error: filteredAndSortedStatuses.filter((s) => s.status === 'error').length,
-      totalPositionValue,
+      totalAssets,
       totalBalance,
     };
   }, [filteredAndSortedStatuses]);
@@ -822,7 +887,7 @@ export default function WorkerStatus() {
                       {selectedFields.includes('position_count') && <th className="key-metric-header">持仓数</th>}
                       {selectedFields.includes('order_count') && <th className="key-metric-header">挂单数</th>}
                       {selectedFields.includes('balance') && <th className="key-metric-header">USDC余额</th>}
-                      {selectedFields.includes('position_value') && <th className="key-metric-header">仓位价值</th>}
+                      {selectedFields.includes('total_assets') && <th className="key-metric-header">资产总额</th>}
                       {selectedFields.includes('version_number') && <th className="key-metric-header">程序版本号</th>}
                       <th>操作</th>
                     </tr>
@@ -867,9 +932,9 @@ export default function WorkerStatus() {
                               {getKeyMetricValue(status.data, 'balance')}
                             </td>
                           )}
-                          {selectedFields.includes('position_value') && (
+                          {selectedFields.includes('total_assets') && (
                             <td className="key-metric-cell">
-                              {getKeyMetricValue(status.data, 'position_value')}
+                              {getKeyMetricValue(status.data, 'total_assets')}
                             </td>
                           )}
                           {selectedFields.includes('version_number') && (
@@ -1030,8 +1095,8 @@ export default function WorkerStatus() {
                 <span className="stat-value">{stats.error}</span>
               </div>
               <div className="stat-item-sidebar" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #dee2e6' }}>
-                <span className="stat-label">总仓位价值:</span>
-                <span className="stat-value">{stats.totalPositionValue.toFixed(2)}</span>
+                <span className="stat-label">总资产总额:</span>
+                <span className="stat-value">{stats.totalAssets.toFixed(2)}</span>
               </div>
               <div className="stat-item-sidebar">
                 <span className="stat-label">总余额:</span>
