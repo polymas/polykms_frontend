@@ -106,3 +106,22 @@
   color: #764ba2;
 }
 
+.field-error {
+  color: #dc3545;
+  font-size: 14px;
+  margin-top: 5px;
+  display: block;
+}
+
+.password-strength {
+  margin-top: 5px;
+  font-size: 14px;
+  color: #666;
+}
+
+.password-hint {
+  margin-top: 5px;
+  font-size: 12px;
+  color: #999;
+}
+

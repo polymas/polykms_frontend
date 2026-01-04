@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { workersAPI, WorkerStatus as WorkerStatusType } from '../utils/api';
+import { isProductionEnvironment } from '../utils/env';
+import { secureLog } from '../utils/security';
 import './WorkerStatus.css';
 
 export default function WorkerStatus() {
@@ -53,7 +55,7 @@ export default function WorkerStatus() {
       setLoading(true);
       setError('');
       const response = await workersAPI.getWorkerStatuses();
-      console.log('加载工作机状态响应:', response);
+      secureLog.log('加载工作机状态响应:', response);
       if (response && response.statuses) {
         // 按IP去重，保留最新的状态（如果有多个相同IP，保留checked_at最新的）
         const statusMap = new Map<string, WorkerStatusType>();
@@ -74,15 +76,15 @@ export default function WorkerStatus() {
         // 转换为数组
         const uniqueStatuses = Array.from(statusMap.values());
         setStatuses(uniqueStatuses);
-        console.log('去重前数量:', response.statuses.length, '去重后数量:', uniqueStatuses.length);
+        secureLog.log('去重前数量:', response.statuses.length, '去重后数量:', uniqueStatuses.length);
       } else {
-        console.warn('响应数据格式异常:', response);
+        secureLog.warn('响应数据格式异常:', response);
         setStatuses([]);
       }
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || err.message || '加载工作机状态失败';
       setError(errorMsg);
-      console.error('加载工作机状态失败:', err);
+      secureLog.error('加载工作机状态失败:', err);
       setStatuses([]);
     } finally {
       setLoading(false);
@@ -139,7 +141,10 @@ export default function WorkerStatus() {
       const formData = new FormData();
       formData.append('file', selectedFile);
 
-      const url = `http://${ip}:8001/update`;
+      // 生产环境使用HTTPS，开发环境使用HTTP（工作机可能不支持HTTPS）
+      // 注意：生产环境建议工作机也配置HTTPS
+      const protocol = isProductionEnvironment() ? 'https' : 'http';
+      const url = `${protocol}://${ip}:8001/update`;
       
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout * 1000);
@@ -172,7 +177,7 @@ export default function WorkerStatus() {
       } else {
         showToast(`${ip}: 上传失败 - ${err.message || '未知错误'}`, 'error');
       }
-      console.error(`上传文件到 ${ip} 失败:`, err);
+      secureLog.error(`上传文件到 ${ip} 失败:`, err);
     } finally {
       // 从上传集合中移除
       setUploading(prev => {
@@ -408,7 +413,6 @@ export default function WorkerStatus() {
     
     // 重要字段匹配规则（系统状态相关）
     const isImportantField = (key: string): boolean => {
-      const lowerKey = key.toLowerCase();
       const importantPatterns = [
         /cpu/i, /memory/i, /disk/i, /network/i,
         /uptime/i, /version/i, /status/i, /运行时间/i,
@@ -894,7 +898,7 @@ export default function WorkerStatus() {
                                         await navigator.clipboard.writeText(proxyAddress);
                                         showToast('代理钱包地址已复制到剪贴板');
                                       } catch (err) {
-                                        console.error('复制失败:', err);
+                                        secureLog.error('复制失败:', err);
                                         // 降级方案：使用传统方法
                                         const textArea = document.createElement('textarea');
                                         textArea.value = proxyAddress;

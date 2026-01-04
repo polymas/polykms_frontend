@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { secretsAPI, StoreSecretRequest, ListSecretsResponse, Secret } from '../utils/api';
 import { parseJWT, decryptSecret, encryptSecret } from '../utils/crypto';
+import { validateKeyName, validateIP, validateURL, sanitizeInput } from '../utils/validation';
+import { getSafeErrorMessage } from '../utils/security';
 import './SecretManagement.css';
 
 interface DecryptedSecretData {
@@ -46,6 +48,12 @@ export default function SecretManagement() {
   const [selectedKeyName, setSelectedKeyName] = useState('');
   const [decryptedData, setDecryptedData] = useState<DecryptedSecretData | null>(null);
   const [decrypting, setDecrypting] = useState(false);
+
+  // 敏感字段显示/隐藏状态
+  const [showPrivateKey, setShowPrivateKey] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [showApiSecret, setShowApiSecret] = useState(false);
+  const [showApiPassphrase, setShowApiPassphrase] = useState(false);
 
   // 加载密钥列表
   const loadSecrets = async () => {
@@ -173,7 +181,7 @@ export default function SecretManagement() {
         await loadSecrets();
       }
     } catch (err: any) {
-      setError(err.message || '批量上传失败');
+      setError(getSafeErrorMessage(err, '批量上传失败'));
     } finally {
       setUploading(false);
     }
@@ -181,8 +189,13 @@ export default function SecretManagement() {
 
   // 单个密钥上传
   const handleSubmitSecret = async () => {
-    if (!formData.key_name) {
-      setError('密钥名称不能为空');
+    setError('');
+    setSuccess('');
+
+    // 输入验证
+    const keyNameValidation = validateKeyName(formData.key_name);
+    if (!keyNameValidation.valid) {
+      setError(keyNameValidation.error || '密钥名称验证失败');
       return;
     }
 
@@ -191,26 +204,43 @@ export default function SecretManagement() {
       return;
     }
 
+    // IP地址验证
+    if (formData.ip) {
+      const ipValidation = validateIP(formData.ip);
+      if (!ipValidation.valid) {
+        setError(ipValidation.error || 'IP地址格式不正确');
+        return;
+      }
+    }
+
+    // 代理地址验证
+    if (formData.proxy_address) {
+      const urlValidation = validateURL(formData.proxy_address);
+      if (!urlValidation.valid) {
+        setError(urlValidation.error || '代理地址格式不正确');
+        return;
+      }
+    }
+
     setSubmitting(true);
-    setError('');
-    setSuccess('');
 
     try {
       const token = localStorage.getItem('token');
       if (!token) {
         setError('未找到登录token');
+        setSubmitting(false);
         return;
       }
       const clientKey = parseJWT(token);
 
-      // 构建上传数据
+      // 构建上传数据（清理输入）
       const secretToUpload: StoreSecretRequest = {
-        key_name: formData.key_name,
+        key_name: sanitizeInput(formData.key_name),
         active: formData.active !== undefined ? formData.active : true,
-        server_name: formData.server_name || '',
+        server_name: formData.server_name ? sanitizeInput(formData.server_name) : '',
         ip: formData.ip || '',
         proxy_address: formData.proxy_address || '',
-        wallet_type: formData.wallet_type || '',
+        wallet_type: formData.wallet_type ? sanitizeInput(formData.wallet_type) : '',
         signature_type: formData.signature_type || 1,
       };
 
@@ -248,7 +278,7 @@ export default function SecretManagement() {
       setShowAddForm(false);
       await loadSecrets();
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || '上传失败');
+      setError(getSafeErrorMessage(err, '上传失败'));
     } finally {
       setSubmitting(false);
     }
@@ -320,7 +350,7 @@ export default function SecretManagement() {
       setDecryptedData(decrypted);
       setSuccess('解密成功');
     } catch (err: any) {
-      setError(err.message || '获取或解密失败');
+      setError(getSafeErrorMessage(err, '获取或解密失败'));
     } finally {
       setDecrypting(false);
     }
@@ -428,45 +458,104 @@ export default function SecretManagement() {
             <div className="form-row">
               <div className="form-group">
                 <label>私钥 *</label>
-                <textarea
-                  value={formData.private_key}
-                  onChange={(e) => setFormData({ ...formData, private_key: e.target.value })}
-                  placeholder="私钥（将自动加密存储）"
-                  rows={2}
-                />
+                <div className="password-input-wrapper">
+                  <textarea
+                    value={showPrivateKey ? formData.private_key : (formData.private_key ? '•'.repeat(Math.min(formData.private_key.length, 50)) : '')}
+                    onChange={(e) => {
+                      if (showPrivateKey) {
+                        setFormData({ ...formData, private_key: e.target.value });
+                      }
+                    }}
+                    placeholder="私钥（将自动加密存储）"
+                    rows={2}
+                    style={{ fontFamily: 'monospace' }}
+                    className={showPrivateKey ? '' : 'password-masked'}
+                  />
+                  <button
+                    type="button"
+                    className="toggle-password"
+                    onClick={() => setShowPrivateKey(!showPrivateKey)}
+                    title={showPrivateKey ? '隐藏' : '显示'}
+                  >
+                    {showPrivateKey ? '👁️' : '👁️‍🗨️'}
+                  </button>
+                </div>
+                <div className="input-warning">⚠️ 请确保周围环境安全后再显示私钥</div>
               </div>
             </div>
             <div className="form-row">
               <div className="form-group">
                 <label>API密钥 (API Key)</label>
-                <textarea
-                  value={formData.api_key}
-                  onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
-                  placeholder="API密钥（明文存储）"
-                  rows={2}
-                />
+                <div className="password-input-wrapper">
+                  <textarea
+                    value={showApiKey ? formData.api_key : (formData.api_key ? '•'.repeat(Math.min(formData.api_key.length, 50)) : '')}
+                    onChange={(e) => {
+                      if (showApiKey) {
+                        setFormData({ ...formData, api_key: e.target.value });
+                      }
+                    }}
+                    placeholder="API密钥（明文存储）"
+                    rows={2}
+                    style={{ fontFamily: 'monospace' }}
+                    className={showApiKey ? '' : 'password-masked'}
+                  />
+                  <button
+                    type="button"
+                    className="toggle-password"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    title={showApiKey ? '隐藏' : '显示'}
+                  >
+                    {showApiKey ? '👁️' : '👁️‍🗨️'}
+                  </button>
+                </div>
               </div>
             </div>
             <div className="form-row">
               <div className="form-group">
                 <label>API密钥 (API Secret)</label>
-                <textarea
-                  value={formData.api_secret}
-                  onChange={(e) => setFormData({ ...formData, api_secret: e.target.value })}
-                  placeholder="API密钥Secret（将自动加密存储）"
-                  rows={2}
-                />
+                <div className="password-input-wrapper">
+                  <textarea
+                    value={showApiSecret ? formData.api_secret : (formData.api_secret ? '•'.repeat(Math.min(formData.api_secret.length, 50)) : '')}
+                    onChange={(e) => {
+                      if (showApiSecret) {
+                        setFormData({ ...formData, api_secret: e.target.value });
+                      }
+                    }}
+                    placeholder="API密钥Secret（将自动加密存储）"
+                    rows={2}
+                    style={{ fontFamily: 'monospace' }}
+                    className={showApiSecret ? '' : 'password-masked'}
+                  />
+                  <button
+                    type="button"
+                    className="toggle-password"
+                    onClick={() => setShowApiSecret(!showApiSecret)}
+                    title={showApiSecret ? '隐藏' : '显示'}
+                  >
+                    {showApiSecret ? '👁️' : '👁️‍🗨️'}
+                  </button>
+                </div>
               </div>
             </div>
             <div className="form-row">
               <div className="form-group">
                 <label>API密码短语</label>
-                <input
-                  type="password"
-                  value={formData.api_passphrase}
-                  onChange={(e) => setFormData({ ...formData, api_passphrase: e.target.value })}
-                  placeholder="API密码短语（明文存储）"
-                />
+                <div className="password-input-wrapper">
+                  <input
+                    type={showApiPassphrase ? 'text' : 'password'}
+                    value={formData.api_passphrase}
+                    onChange={(e) => setFormData({ ...formData, api_passphrase: e.target.value })}
+                    placeholder="API密码短语（明文存储）"
+                  />
+                  <button
+                    type="button"
+                    className="toggle-password"
+                    onClick={() => setShowApiPassphrase(!showApiPassphrase)}
+                    title={showApiPassphrase ? '隐藏' : '显示'}
+                  >
+                    {showApiPassphrase ? '👁️' : '👁️‍🗨️'}
+                  </button>
+                </div>
               </div>
             </div>
             <button

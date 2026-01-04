@@ -2,7 +2,8 @@
  * API服务层
  */
 import axios, { AxiosInstance } from 'axios';
-import { getBackendUrl } from './env';
+import { getBackendUrl, isProductionEnvironment } from './env';
+import { validateHTTPS, ensureHTTPS, secureLog } from './security';
 
 // 获取API基础URL
 // 开发模式：固定走 vite 代理到 http://localhost:8866
@@ -16,9 +17,17 @@ const getApiBaseUrlConfig = (): string => {
   // 生产模式下，使用环境变量
   const apiBaseUrl = getBackendUrl();
   if (!apiBaseUrl) {
-    console.warn('生产环境未设置 VITE_API_BASE_URL，API 请求可能失败');
+    secureLog.warn('生产环境未设置 VITE_API_BASE_URL，API 请求可能失败');
+    return '';
   }
-  return apiBaseUrl;
+
+  // 生产环境强制HTTPS
+  if (isProductionEnvironment() && !validateHTTPS(apiBaseUrl)) {
+    secureLog.error('生产环境API URL必须使用HTTPS:', apiBaseUrl);
+    throw new Error('生产环境必须使用HTTPS连接');
+  }
+
+  return ensureHTTPS(apiBaseUrl);
 };
 
 const API_BASE_URL = getApiBaseUrlConfig();
@@ -54,15 +63,18 @@ api.interceptors.response.use(
       window.location.href = '/login';
     }
 
-    // 处理405方法不允许错误
+    // 处理405方法不允许错误（仅开发环境输出详细信息）
     if (error.response?.status === 405) {
-      console.error('405 Method Not Allowed:', {
+      secureLog.error('405 Method Not Allowed:', {
         method: error.config?.method?.toUpperCase(),
         url: error.config?.url,
-        baseURL: error.config?.baseURL,
-        fullURL: error.config?.url ? `${error.config.baseURL}${error.config.url}` : 'unknown',
       });
-      error.message = `请求方法不被允许: ${error.config?.method?.toUpperCase()} ${error.config?.url}`;
+      // 生产环境使用通用错误消息
+      if (isProductionEnvironment()) {
+        error.message = '请求方法不被允许';
+      } else {
+        error.message = `请求方法不被允许: ${error.config?.method?.toUpperCase()} ${error.config?.url}`;
+      }
     }
 
     return Promise.reject(error);
@@ -173,9 +185,16 @@ export const authAPI = {
    */
   login: async (data: LoginRequest): Promise<LoginResponse> => {
     const response = await api.post<LoginResponse>('/api/v1/auth/login', data);
-    // 保存token到localStorage
+    // 保存token到localStorage（注意：存在XSS风险，建议后端使用httpOnly cookie）
     if (response.data.token) {
-      localStorage.setItem('token', response.data.token);
+      // 使用sessionStorage替代localStorage可以降低风险（关闭标签页后自动清除）
+      // 但最佳方案是后端使用httpOnly cookie
+      try {
+        localStorage.setItem('token', response.data.token);
+      } catch (e) {
+        secureLog.error('保存token失败:', e);
+        throw new Error('无法保存登录状态');
+      }
     }
     return response.data;
   },

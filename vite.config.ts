@@ -15,8 +15,11 @@ export default defineConfig({
         rewrite: (path) => path, // 保持路径不变，/api/v1/secrets -> /api/v1/secrets
         configure: (proxy, _options) => {
           proxy.on('error', (err, req, res) => {
-            console.error('Proxy error:', err.message);
-            console.error('Request URL:', req.url);
+            // 开发环境才输出详细错误
+            if (process.env.NODE_ENV !== 'production') {
+              console.error('Proxy error:', err.message);
+              console.error('Request URL:', req.url);
+            }
             if (!res.headersSent) {
               res.writeHead(500, {
                 'Content-Type': 'text/plain',
@@ -25,14 +28,20 @@ export default defineConfig({
             }
           });
           proxy.on('proxyReq', (proxyReq, req, _res) => {
-            console.log('→ Sending Request:', req.method, req.url);
-            console.log('→ Target URL:', proxyReq.path);
+            // 开发环境才输出请求日志
+            if (process.env.NODE_ENV !== 'production') {
+              console.log('→ Sending Request:', req.method, req.url);
+              console.log('→ Target URL:', proxyReq.path);
+            }
             // changeOrigin: true 会自动设置正确的 Host 头，不需要手动设置
           });
           proxy.on('proxyRes', (proxyRes, req, _res) => {
-            console.log('← Received Response:', proxyRes.statusCode, req.url);
-            if (proxyRes.statusCode >= 400) {
-              console.error('← Error Response:', proxyRes.statusCode, req.url);
+            // 开发环境才输出响应日志
+            if (process.env.NODE_ENV !== 'production') {
+              console.log('← Received Response:', proxyRes.statusCode, req.url);
+              if (proxyRes.statusCode >= 400) {
+                console.error('← Error Response:', proxyRes.statusCode, req.url);
+              }
             }
           });
         },
