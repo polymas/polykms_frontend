@@ -31,6 +31,9 @@ export default function WorkerStatus() {
   const [hideOffline, setHideOffline] = useState<boolean>(false); // 隐藏离线机器
   const [selectedFile, setSelectedFile] = useState<File | null>(null); // 选定的文件
   const [uploading, setUploading] = useState<Set<string>>(new Set()); // 正在上传的工作机IP集合
+  const [positionsData, setPositionsData] = useState<Map<string, any>>(new Map()); // 仓位数据，key为IP
+  const [loadingPositions, setLoadingPositions] = useState<Set<string>>(new Set()); // 正在加载仓位的工作机IP集合
+  const [showPositionsRows, setShowPositionsRows] = useState<Set<string>>(new Set()); // 显示仓位详情的行（IP集合）
 
   // 可选的字段列表
   const availableFields = [
@@ -54,6 +57,18 @@ export default function WorkerStatus() {
     try {
       setLoading(true);
       setError('');
+      
+      // 保存当前展开的行ID（基于IP），避免刷新时收回
+      const currentExpandedIPs = new Set<string>();
+      statuses.forEach(status => {
+        if (expandedRows.has(status.id)) {
+          currentExpandedIPs.add(status.ip);
+        }
+      });
+      
+      // 保存当前显示仓位信息的IP列表
+      const currentPositionsIPs = new Set(showPositionsRows);
+      
       const response = await workersAPI.getWorkerStatuses();
       secureLog.log('加载工作机状态响应:', response);
       if (response && response.statuses) {
@@ -76,6 +91,26 @@ export default function WorkerStatus() {
         // 转换为数组
         const uniqueStatuses = Array.from(statusMap.values());
         setStatuses(uniqueStatuses);
+        
+        // 恢复展开状态（基于IP匹配）
+        const newExpandedRows = new Set<number>();
+        uniqueStatuses.forEach(status => {
+          if (currentExpandedIPs.has(status.ip)) {
+            newExpandedRows.add(status.id);
+          }
+        });
+        setExpandedRows(newExpandedRows);
+        
+        // 恢复仓位信息显示状态（基于IP匹配）
+        const newShowPositionsRows = new Set<string>();
+        currentPositionsIPs.forEach(ip => {
+          // 检查新数据中是否还有这个IP
+          if (uniqueStatuses.some(s => s.ip === ip)) {
+            newShowPositionsRows.add(ip);
+          }
+        });
+        setShowPositionsRows(newShowPositionsRows);
+        
         secureLog.log('去重前数量:', response.statuses.length, '去重后数量:', uniqueStatuses.length);
       } else {
         secureLog.warn('响应数据格式异常:', response);
@@ -109,6 +144,127 @@ export default function WorkerStatus() {
     } catch (err: any) {
       showToast(err.response?.data?.error || err.message || '检查工作机状态失败', 'error');
     }
+  };
+
+  // 获取特定工作机的仓位信息
+  const loadWorkerPositions = async (ip: string) => {
+    if (loadingPositions.has(ip)) {
+      return; // 正在加载中，避免重复请求
+    }
+
+    setLoadingPositions(prev => new Set(prev).add(ip));
+
+    try {
+      // 使用代理接口获取仓位信息
+      const positions = await workersAPI.getWorkerPositions(ip);
+      setPositionsData(prev => {
+        const newMap = new Map(prev);
+        newMap.set(ip, positions);
+        return newMap;
+      });
+      // 展开显示仓位详情
+      setShowPositionsRows(prev => new Set(prev).add(ip));
+      // 如果行未展开，先展开行
+      const status = statuses.find(s => s.ip === ip);
+      if (status && !expandedRows.has(status.id)) {
+        setExpandedRows(prev => new Set(prev).add(status.id));
+      }
+      showToast(`${ip}: 仓位信息获取成功`, 'success');
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error || err.message || '获取仓位信息失败';
+      showToast(`${ip}: ${errorMsg}`, 'error');
+      secureLog.error(`获取工作机 ${ip} 仓位信息失败:`, err);
+    } finally {
+      setLoadingPositions(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(ip);
+        return newSet;
+      });
+    }
+  };
+
+  // 渲染仓位详情
+  const renderPositionsData = (ip: string) => {
+    const positions = positionsData.get(ip);
+    if (!positions) {
+      return null;
+    }
+
+    // 解析仓位数据，提取关键信息
+    const extractPositions = (data: any): Array<{
+      asset?: string;
+      symbol?: string;
+      amount?: number;
+      price?: number;
+      value?: number;
+      [key: string]: any;
+    }> => {
+      if (Array.isArray(data)) {
+        return data;
+      }
+      if (data && typeof data === 'object') {
+        // 如果是对象，尝试找到仓位数组
+        if (data.positions && Array.isArray(data.positions)) {
+          return data.positions;
+        }
+        if (data.data && Array.isArray(data.data)) {
+          return data.data;
+        }
+        if (data.list && Array.isArray(data.list)) {
+          return data.list;
+        }
+        // 如果对象本身包含仓位信息，转换为数组
+        return [data];
+      }
+      return [];
+    };
+
+    const positionsList = extractPositions(positions);
+
+    if (positionsList.length === 0) {
+      return (
+        <div className="positions-empty">
+          <p>暂无仓位数据</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="positions-container">
+        <h5 className="positions-title">仓位详情</h5>
+        <table className="positions-table">
+          <thead>
+            <tr>
+              <th>代币(Asset)</th>
+              <th>代币符号</th>
+              <th>仓位数量</th>
+              <th>价格</th>
+              <th>市值</th>
+            </tr>
+          </thead>
+          <tbody>
+            {positionsList.map((pos, index) => {
+              // 提取关键字段（支持多种可能的字段名）
+              const asset = pos.asset || pos.tokenId || pos.token_id || pos.id || pos.symbol || '-';
+              const symbol = pos.symbol || pos.tokenSymbol || pos.token_symbol || '-';
+              const amount = pos.amount || pos.quantity || pos.size || pos.position || 0;
+              const price = pos.price || pos.currentPrice || pos.current_price || pos.marketPrice || pos.market_price || 0;
+              const value = pos.value || pos.totalValue || pos.total_value || (amount * price) || 0;
+
+              return (
+                <tr key={index}>
+                  <td>{asset}</td>
+                  <td>{symbol}</td>
+                  <td>{typeof amount === 'number' ? amount.toLocaleString('zh-CN', { maximumFractionDigits: 8 }) : amount}</td>
+                  <td>{typeof price === 'number' ? price.toLocaleString('zh-CN', { maximumFractionDigits: 4 }) : price}</td>
+                  <td>{typeof value === 'number' ? value.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : value}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
   };
 
   // 上传文件到指定工作机（支持并发）
@@ -997,6 +1153,14 @@ export default function WorkerStatus() {
                                 </button>
                               )}
                               <button
+                                className="positions-button"
+                                onClick={() => loadWorkerPositions(status.ip)}
+                                disabled={loadingPositions.has(status.ip)}
+                                title={`获取 ${status.ip} 的仓位信息`}
+                              >
+                                {loadingPositions.has(status.ip) ? '加载中...' : '仓位'}
+                              </button>
+                              <button
                                 className="check-button"
                                 onClick={() => handleCheckStatus(status.ip)}
                               >
@@ -1005,15 +1169,24 @@ export default function WorkerStatus() {
                             </div>
                           </td>
                         </tr>
-                        {isExpanded && businessData && (
+                        {isExpanded && (
                           <tr className="detail-row">
                             <td colSpan={colSpan} className="detail-cell">
                               <div className="detail-content">
-                                <div className="detail-header">
-                                  <h4>工作机业务信息</h4>
-                                  <span className="detail-subtitle">{status.key_name} ({status.ip})</span>
-                                </div>
-                                {renderBusinessData(businessData)}
+                                {/* 只显示仓位信息，不显示业务信息 */}
+                                {showPositionsRows.has(status.ip) ? (
+                                  <div className="positions-section">
+                                    {renderPositionsData(status.ip)}
+                                  </div>
+                                ) : businessData ? (
+                                  <>
+                                    <div className="detail-header">
+                                      <h4>工作机业务信息</h4>
+                                      <span className="detail-subtitle">{status.key_name} ({status.ip})</span>
+                                    </div>
+                                    {renderBusinessData(businessData)}
+                                  </>
+                                ) : null}
                               </div>
                             </td>
                           </tr>
@@ -1144,6 +1317,7 @@ export default function WorkerStatus() {
           </div>
         </div>
       </div>
+
     </div>
   );
 }
