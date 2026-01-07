@@ -355,5 +355,13 @@ export const workersAPI = {
     const response = await api.post<WorkerStatus>(`/api/v1/workers/status/${encodeURIComponent(ip)}/check`);
     return response.data;
   },
+
+  /**
+   * 获取特定工作机的仓位信息（通过代理接口）
+   */
+  getWorkerPositions: async (ip: string): Promise<any> => {
+    const response = await api.get<any>(`/api/v1/proxy/${encodeURIComponent(ip)}/positions`);
+    return response.data;
+  },
 };
 
