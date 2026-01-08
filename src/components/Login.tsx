@@ -1,8 +1,11 @@
 import { useState, useCallback } from 'react';
+import { Form, Input, Button, Card, Alert, Typography } from 'antd';
+import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { authAPI } from '../utils/api';
 import { validateUsername, sanitizeInput } from '../utils/validation';
 import { getSafeErrorMessage, throttle } from '../utils/security';
-import './Login.css';
+
+const { Title, Text } = Typography;
 
 interface LoginProps {
   onLoginSuccess: () => void;
@@ -10,8 +13,7 @@ interface LoginProps {
 }
 
 export default function Login({ onLoginSuccess, onSwitchToRegister }: LoginProps) {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [form] = Form.useForm();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [usernameError, setUsernameError] = useState('');
@@ -45,29 +47,27 @@ export default function Login({ onLoginSuccess, onSwitchToRegister }: LoginProps
     [onLoginSuccess]
   );
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (values: { username: string; password: string }) => {
     setError('');
     setUsernameError('');
 
     // 客户端验证
-    const usernameValidation = validateUsername(username);
+    const usernameValidation = validateUsername(values.username);
     if (!usernameValidation.valid) {
       setUsernameError(usernameValidation.error || '');
       return;
     }
 
-    if (!password || password.length === 0) {
+    if (!values.password || values.password.length === 0) {
       setError('密码不能为空');
       return;
     }
 
-    await throttledLogin(username, password);
+    await throttledLogin(values.username, values.password);
   };
 
   const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    setUsername(value);
     setUsernameError('');
 
     // 实时验证
@@ -81,49 +81,78 @@ export default function Login({ onLoginSuccess, onSwitchToRegister }: LoginProps
 
   return (
     <div className="auth-container">
-      <div className="auth-card">
-        <h1>登录</h1>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label htmlFor="username">用户名</label>
-            <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={handleUsernameChange}
-              required
-              disabled={loading}
+      <Card style={{ width: 400, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+        <Title level={2} style={{ textAlign: 'center', marginBottom: 24 }}>
+          登录
+        </Title>
+        {error && (
+          <Alert
+            message={error}
+            type="error"
+            showIcon
+            closable
+            style={{ marginBottom: 16 }}
+            onClose={() => setError('')}
+          />
+        )}
+        <Form
+          form={form}
+          name="login"
+          onFinish={handleSubmit}
+          autoComplete="off"
+          size="large"
+        >
+          <Form.Item
+            name="username"
+            rules={[
+              { required: true, message: '请输入用户名' },
+              { max: 50, message: '用户名不能超过50个字符' },
+            ]}
+            validateStatus={usernameError ? 'error' : ''}
+            help={usernameError}
+          >
+            <Input
+              prefix={<UserOutlined />}
+              placeholder="用户名"
               maxLength={50}
-              autoComplete="username"
-            />
-            {usernameError && <div className="field-error">{usernameError}</div>}
-          </div>
-          <div className="form-group">
-            <label htmlFor="password">密码</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
+              onChange={handleUsernameChange}
               disabled={loading}
-              maxLength={128}
-              autoComplete="current-password"
             />
-          </div>
-          {error && <div className="error-message">{error}</div>}
-          <button type="submit" disabled={loading} className="btn-primary">
-            {loading ? '登录中...' : '登录'}
-          </button>
-        </form>
-        <div className="auth-switch">
-          还没有账号？{' '}
-          <button type="button" onClick={onSwitchToRegister} className="link-button">
+          </Form.Item>
+
+          <Form.Item
+            name="password"
+            rules={[
+              { required: true, message: '请输入密码' },
+              { max: 128, message: '密码不能超过128个字符' },
+            ]}
+          >
+            <Input.Password
+              prefix={<LockOutlined />}
+              placeholder="密码"
+              maxLength={128}
+              disabled={loading}
+            />
+          </Form.Item>
+
+          <Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              block
+              loading={loading}
+            >
+              登录
+            </Button>
+          </Form.Item>
+        </Form>
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <Text type="secondary">还没有账号？</Text>{' '}
+          <Button type="link" onClick={onSwitchToRegister} style={{ padding: 0 }}>
             立即注册
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
-

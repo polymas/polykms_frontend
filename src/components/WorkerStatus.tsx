@@ -22,7 +22,7 @@ export default function WorkerStatus() {
     'version_number',
   ]);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [refreshInterval, setRefreshInterval] = useState(5); // 秒
+  const [refreshInterval, setRefreshInterval] = useState(10); // 秒
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set()); // 展开的行ID
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [searchKeyword, setSearchKeyword] = useState<string>(''); // 搜索关键词

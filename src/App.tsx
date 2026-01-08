@@ -1,11 +1,15 @@
 import { useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { Layout, Menu, Button } from 'antd';
+import { KeyOutlined, MonitorOutlined, LogoutOutlined } from '@ant-design/icons';
 import Login from './components/Login';
 import Register from './components/Register';
 import SecretManagement from './components/SecretManagement';
 import WorkerStatus from './components/WorkerStatus';
 import EnvironmentBanner from './components/EnvironmentBanner';
 import './App.css';
+
+const { Header, Content } = Layout;
 
 type AuthMode = 'login' | 'register';
 
@@ -28,37 +32,61 @@ function Navigation() {
     navigate('/login');
   };
 
+  const menuItems = [
+    {
+      key: '/secrets',
+      icon: <KeyOutlined />,
+      label: '密钥管理',
+    },
+    {
+      key: '/workers',
+      icon: <MonitorOutlined />,
+      label: '工作机状态',
+    },
+  ];
+
+  const handleMenuClick = ({ key }: { key: string }) => {
+    navigate(key);
+  };
+
   return (
-    <div className="app-navigation">
-      <div className="nav-tabs">
-        <Link
-          to="/secrets"
-          className={location.pathname === '/secrets' ? 'active' : ''}
-        >
-          密钥管理
-        </Link>
-        <Link
-          to="/workers"
-          className={location.pathname === '/workers' ? 'active' : ''}
-        >
-          工作机状态
-        </Link>
-      </div>
-      <button className="logout-button" onClick={handleLogout}>
+    <Header style={{ 
+      display: 'flex', 
+      justifyContent: 'space-between', 
+      alignItems: 'center',
+      background: '#fff',
+      padding: '0 24px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+    }}>
+      <Menu
+        mode="horizontal"
+        selectedKeys={[location.pathname]}
+        items={menuItems}
+        onClick={handleMenuClick}
+        style={{ flex: 1, borderBottom: 'none' }}
+      />
+      <Button 
+        type="primary" 
+        danger 
+        icon={<LogoutOutlined />}
+        onClick={handleLogout}
+      >
         退出登录
-      </button>
-    </div>
+      </Button>
+    </Header>
   );
 }
 
 // 主布局组件
 function MainLayout({ children }: { children: React.ReactNode }) {
   return (
-    <>
+    <Layout style={{ minHeight: '100vh' }}>
       <EnvironmentBanner />
       <Navigation />
-      {children}
-    </>
+      <Content style={{ padding: '24px', background: '#f0f2f5' }}>
+        {children}
+      </Content>
+    </Layout>
   );
 }
 
@@ -76,7 +104,7 @@ function AuthPage() {
   };
 
   return (
-    <div className="app">
+    <Layout style={{ minHeight: '100vh', background: '#f0f2f5' }}>
       <EnvironmentBanner />
       {authMode === 'login' ? (
         <Login
@@ -89,7 +117,7 @@ function AuthPage() {
           onSwitchToLogin={() => setAuthMode('login')}
         />
       )}
-    </div>
+    </Layout>
   );
 }
 
@@ -132,4 +160,3 @@ function App() {
 }
 
 export default App;
-

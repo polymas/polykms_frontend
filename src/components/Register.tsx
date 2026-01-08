@@ -1,8 +1,11 @@
 import { useState, useCallback } from 'react';
+import { Form, Input, Button, Card, Alert, Typography, Progress } from 'antd';
+import { UserOutlined, LockOutlined, MailOutlined } from '@ant-design/icons';
 import { authAPI } from '../utils/api';
 import { validateUsername, validatePassword, validateEmail, sanitizeInput } from '../utils/validation';
 import { getSafeErrorMessage, throttle } from '../utils/security';
-import './Login.css';
+
+const { Title, Text } = Typography;
 
 interface RegisterProps {
   onRegisterSuccess: () => void;
@@ -10,15 +13,13 @@ interface RegisterProps {
 }
 
 export default function Register({ onRegisterSuccess, onSwitchToLogin }: RegisterProps) {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [email, setEmail] = useState('');
+  const [form] = Form.useForm();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [usernameError, setUsernameError] = useState('');
   const [passwordError, setPasswordError] = useState('');
-  const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong'>('weak');
   const [emailError, setEmailError] = useState('');
+  const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong'>('weak');
 
   // 节流处理注册请求
   const throttledRegister = useCallback(
@@ -72,40 +73,38 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
     [onRegisterSuccess]
   );
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (values: { username: string; password: string; email?: string }) => {
     setError('');
     setUsernameError('');
     setPasswordError('');
     setEmailError('');
 
     // 客户端验证
-    const usernameValidation = validateUsername(username);
+    const usernameValidation = validateUsername(values.username);
     if (!usernameValidation.valid) {
       setUsernameError(usernameValidation.error || '');
       return;
     }
 
-    const passwordValidation = validatePassword(password);
+    const passwordValidation = validatePassword(values.password);
     if (!passwordValidation.valid) {
       setPasswordError(passwordValidation.error || '');
       return;
     }
 
-    if (email) {
-      const emailValidation = validateEmail(email);
+    if (values.email) {
+      const emailValidation = validateEmail(values.email);
       if (!emailValidation.valid) {
         setEmailError(emailValidation.error || '');
         return;
       }
     }
 
-    await throttledRegister(username, password, email || undefined);
+    await throttledRegister(values.username, values.password, values.email);
   };
 
   const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    setUsername(value);
     setUsernameError('');
 
     if (value.length > 0) {
@@ -118,7 +117,6 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
 
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    setPassword(value);
     setPasswordError('');
 
     if (value.length > 0) {
@@ -134,7 +132,6 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
 
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    setEmail(value);
     setEmailError('');
 
     if (value.length > 0) {
@@ -145,102 +142,149 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
     }
   };
 
+  const getPasswordStrengthPercent = () => {
+    switch (passwordStrength) {
+      case 'strong': return 100;
+      case 'medium': return 66;
+      case 'weak': return 33;
+      default: return 0;
+    }
+  };
+
   const getPasswordStrengthColor = () => {
     switch (passwordStrength) {
-      case 'strong':
-        return '#28a745';
-      case 'medium':
-        return '#ffc107';
-      case 'weak':
-        return '#dc3545';
-      default:
-        return '#6c757d';
+      case 'strong': return '#52c41a';
+      case 'medium': return '#faad14';
+      case 'weak': return '#ff4d4f';
+      default: return '#d9d9d9';
     }
   };
 
   const getPasswordStrengthText = () => {
     switch (passwordStrength) {
-      case 'strong':
-        return '强';
-      case 'medium':
-        return '中';
-      case 'weak':
-        return '弱';
-      default:
-        return '';
+      case 'strong': return '强';
+      case 'medium': return '中';
+      case 'weak': return '弱';
+      default: return '';
     }
   };
 
   return (
     <div className="auth-container">
-      <div className="auth-card">
-        <h1>注册</h1>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label htmlFor="username">用户名</label>
-            <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={handleUsernameChange}
-              required
-              disabled={loading}
+      <Card style={{ width: 450, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+        <Title level={2} style={{ textAlign: 'center', marginBottom: 24 }}>
+          注册
+        </Title>
+        {error && (
+          <Alert
+            message={error}
+            type="error"
+            showIcon
+            closable
+            style={{ marginBottom: 16 }}
+            onClose={() => setError('')}
+          />
+        )}
+        <Form
+          form={form}
+          name="register"
+          onFinish={handleSubmit}
+          autoComplete="off"
+          size="large"
+        >
+          <Form.Item
+            name="username"
+            rules={[
+              { required: true, message: '请输入用户名' },
+              { max: 50, message: '用户名不能超过50个字符' },
+            ]}
+            validateStatus={usernameError ? 'error' : ''}
+            help={usernameError}
+          >
+            <Input
+              prefix={<UserOutlined />}
+              placeholder="用户名"
               maxLength={50}
-              autoComplete="username"
-            />
-            {usernameError && <div className="field-error">{usernameError}</div>}
-          </div>
-          <div className="form-group">
-            <label htmlFor="password">密码</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={handlePasswordChange}
-              required
+              onChange={handleUsernameChange}
               disabled={loading}
-              maxLength={128}
-              autoComplete="new-password"
             />
-            {password && (
-              <div className="password-strength">
-                <span>密码强度：</span>
-                <span style={{ color: getPasswordStrengthColor(), fontWeight: 'bold' }}>
+          </Form.Item>
+
+          <Form.Item
+            name="password"
+            rules={[
+              { required: true, message: '请输入密码' },
+              { min: 8, message: '密码至少8个字符' },
+              { max: 128, message: '密码不能超过128个字符' },
+            ]}
+            validateStatus={passwordError ? 'error' : ''}
+            help={passwordError}
+          >
+            <Input.Password
+              prefix={<LockOutlined />}
+              placeholder="密码"
+              maxLength={128}
+              onChange={handlePasswordChange}
+              disabled={loading}
+            />
+          </Form.Item>
+
+          {form.getFieldValue('password') && (
+            <Form.Item>
+              <div style={{ marginBottom: 8 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>密码强度：</Text>
+                <Text strong style={{ color: getPasswordStrengthColor(), fontSize: 12 }}>
                   {getPasswordStrengthText()}
-                </span>
+                </Text>
               </div>
-            )}
-            {passwordError && <div className="field-error">{passwordError}</div>}
-            <div className="password-hint">
-              密码要求：至少8个字符，包含字母和数字
-            </div>
-          </div>
-          <div className="form-group">
-            <label htmlFor="email">邮箱（可选）</label>
-            <input
-              id="email"
-              type="email"
-              value={email}
+              <Progress
+                percent={getPasswordStrengthPercent()}
+                strokeColor={getPasswordStrengthColor()}
+                showInfo={false}
+                size="small"
+              />
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                密码要求：至少8个字符，包含字母和数字
+              </Text>
+            </Form.Item>
+          )}
+
+          <Form.Item
+            name="email"
+            rules={[
+              { type: 'email', message: '请输入有效的邮箱地址' },
+              { max: 255, message: '邮箱不能超过255个字符' },
+            ]}
+            validateStatus={emailError ? 'error' : ''}
+            help={emailError}
+          >
+            <Input
+              prefix={<MailOutlined />}
+              placeholder="邮箱（可选）"
+              maxLength={255}
               onChange={handleEmailChange}
               disabled={loading}
-              maxLength={255}
-              autoComplete="email"
             />
-            {emailError && <div className="field-error">{emailError}</div>}
-          </div>
-          {error && <div className="error-message">{error}</div>}
-          <button type="submit" disabled={loading} className="btn-primary">
-            {loading ? '注册中...' : '注册'}
-          </button>
-        </form>
-        <div className="auth-switch">
-          已有账号？{' '}
-          <button type="button" onClick={onSwitchToLogin} className="link-button">
+          </Form.Item>
+
+          <Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              block
+              loading={loading}
+            >
+              注册
+            </Button>
+          </Form.Item>
+        </Form>
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <Text type="secondary">已有账号？</Text>{' '}
+          <Button type="link" onClick={onSwitchToLogin} style={{ padding: 0 }}>
             立即登录
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
-

@@ -1,3 +1,5 @@
+/* 全局样式 - 浅色主题，使用 Ant Design */
+
 * {
   margin: 0;
   padding: 0;
@@ -10,68 +12,36 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f5f5f5;
+  background: #f0f2f5;
 }
 
-.app {
-  min-height: 100vh;
+/* 自定义样式覆盖 */
+.ant-layout {
+  background: #f0f2f5;
 }
 
-/* 导航栏 */
-.app-navigation {
+/* 登录/注册页面居中 */
+.auth-container {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
-  padding: 15px 20px;
-  background-color: white;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  margin-bottom: 20px;
+  min-height: calc(100vh - 64px);
+  padding: 24px;
 }
 
-.nav-tabs {
-  display: flex;
-  gap: 10px;
+/* 页面容器 */
+.page-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  background: #fff;
+  padding: 24px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.nav-tabs a {
-  padding: 8px 20px;
-  background-color: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.3s;
-  text-decoration: none;
-  color: inherit;
-  display: inline-block;
+/* 响应式 */
+@media (max-width: 768px) {
+  .page-container {
+    padding: 16px;
+  }
 }
-
-.nav-tabs a:hover {
-  background-color: #e9ecef;
-}
-
-.nav-tabs a.active {
-  background-color: #007bff;
-  color: white;
-  border-color: #007bff;
-}
-
-.logout-button {
-  padding: 8px 16px;
-  background-color: #dc3545;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.logout-button:hover {
-  background-color: #c82333;
-}
-
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
-}
-
