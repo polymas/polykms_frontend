@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { workersAPI, WorkerStatus as WorkerStatusType } from '../utils/api';
+import React, { useState, useEffect, useRef } from 'react';
+import { workersAPI, ordersAPI, WorkerStatus as WorkerStatusType } from '../utils/api';
 import { isProductionEnvironment } from '../utils/env';
 import { secureLog } from '../utils/security';
 import './WorkerStatus.css';
@@ -34,6 +34,28 @@ export default function WorkerStatus() {
   const [positionsData, setPositionsData] = useState<Map<string, any>>(new Map()); // 仓位数据，key为IP
   const [loadingPositions, setLoadingPositions] = useState<Set<string>>(new Set()); // 正在加载仓位的工作机IP集合
   const [showPositionsRows, setShowPositionsRows] = useState<Set<string>>(new Set()); // 显示仓位详情的行（IP集合）
+  const [showLimitOrderModal, setShowLimitOrderModal] = useState(false); // 显示限价单对话框
+  const [limitOrderData, setLimitOrderData] = useState<{ ip: string; token_id: string; asset: string; title: string; outcome: string; amount: number } | null>(null); // 限价单数据
+  const [limitOrderForm, setLimitOrderForm] = useState({ price: '', size_rate: '100' }); // 限价单表单（size_rate为百分比，默认100%）
+  const [submittingLimitOrder, setSubmittingLimitOrder] = useState(false); // 正在提交限价单
+
+  // 使用 ref 保存最新状态，避免闭包问题
+  const statusesRef = useRef<WorkerStatusType[]>([]);
+  const expandedRowsRef = useRef<Set<number>>(new Set());
+  const showPositionsRowsRef = useRef<Set<string>>(new Set());
+
+  // 同步 ref 和 state
+  useEffect(() => {
+    statusesRef.current = statuses;
+  }, [statuses]);
+
+  useEffect(() => {
+    expandedRowsRef.current = expandedRows;
+  }, [expandedRows]);
+
+  useEffect(() => {
+    showPositionsRowsRef.current = showPositionsRows;
+  }, [showPositionsRows]);
 
   // 可选的字段列表
   const availableFields = [
@@ -57,18 +79,23 @@ export default function WorkerStatus() {
     try {
       setLoading(true);
       setError('');
-      
+
+      // 从 ref 获取最新状态值，避免闭包问题
+      const currentStatuses = statusesRef.current;
+      const currentExpandedRows = expandedRowsRef.current;
+      const currentShowPositionsRows = showPositionsRowsRef.current;
+
       // 保存当前展开的行ID（基于IP），避免刷新时收回
       const currentExpandedIPs = new Set<string>();
-      statuses.forEach(status => {
-        if (expandedRows.has(status.id)) {
+      currentStatuses.forEach(status => {
+        if (currentExpandedRows.has(status.id)) {
           currentExpandedIPs.add(status.ip);
         }
       });
-      
+
       // 保存当前显示仓位信息的IP列表
-      const currentPositionsIPs = new Set(showPositionsRows);
-      
+      const currentPositionsIPs = new Set(currentShowPositionsRows);
+
       const response = await workersAPI.getWorkerStatuses();
       secureLog.log('加载工作机状态响应:', response);
       if (response && response.statuses) {
@@ -87,11 +114,11 @@ export default function WorkerStatus() {
             }
           }
         });
-        
+
         // 转换为数组
         const uniqueStatuses = Array.from(statusMap.values());
         setStatuses(uniqueStatuses);
-        
+
         // 恢复展开状态（基于IP匹配）
         const newExpandedRows = new Set<number>();
         uniqueStatuses.forEach(status => {
@@ -100,7 +127,7 @@ export default function WorkerStatus() {
           }
         });
         setExpandedRows(newExpandedRows);
-        
+
         // 恢复仓位信息显示状态（基于IP匹配）
         const newShowPositionsRows = new Set<string>();
         currentPositionsIPs.forEach(ip => {
@@ -110,7 +137,7 @@ export default function WorkerStatus() {
           }
         });
         setShowPositionsRows(newShowPositionsRows);
-        
+
         secureLog.log('去重前数量:', response.statuses.length, '去重后数量:', uniqueStatuses.length);
       } else {
         secureLog.warn('响应数据格式异常:', response);
@@ -183,6 +210,80 @@ export default function WorkerStatus() {
     }
   };
 
+  // 打开限价单对话框
+  const handleOpenLimitOrder = (ip: string, token_id: string, asset: string, title: string, outcome: string, amount: number) => {
+    setLimitOrderData({ ip, token_id, asset, title, outcome, amount });
+    setLimitOrderForm({ price: '', size_rate: '100' });
+    setShowLimitOrderModal(true);
+  };
+
+  // 关闭限价单对话框
+  const handleCloseLimitOrder = () => {
+    setShowLimitOrderModal(false);
+    setLimitOrderData(null);
+    setLimitOrderForm({ price: '', size_rate: '100' });
+  };
+
+  // 提交限价单
+  const handleSubmitLimitOrder = async () => {
+    if (!limitOrderData) return;
+
+    const { price, size_rate } = limitOrderForm;
+    if (!price || !size_rate) {
+      showToast('请填写价格和仓位百分比', 'error');
+      return;
+    }
+
+    const priceNum = parseFloat(price);
+    const sizeRateNum = parseFloat(size_rate);
+
+    if (isNaN(priceNum) || priceNum <= 0) {
+      showToast('价格必须是大于0的数字', 'error');
+      return;
+    }
+
+    if (isNaN(sizeRateNum) || sizeRateNum <= 0 || sizeRateNum > 100) {
+      showToast('仓位百分比必须在0到100之间', 'error');
+      return;
+    }
+
+    setSubmittingLimitOrder(true);
+    try {
+      // 使用新的改挂限价单接口
+      const requestData: any = {
+        ip: limitOrderData.ip,
+        token_id: limitOrderData.token_id,
+        price: priceNum,
+      };
+
+      // 如果size_rate不是100%，添加到请求中
+      if (sizeRateNum !== 100) {
+        requestData.size_rate = sizeRateNum;
+      }
+
+      const response = await ordersAPI.modifyLimitOrder(requestData);
+
+      // 根据操作结果显示不同的提示信息
+      if (response.success) {
+        if (response.action === 'cancel') {
+          showToast(`已取消挂单: ${limitOrderData.asset} (${response.canceled_id || ''})`, 'success');
+        } else {
+          const sizeRateText = sizeRateNum === 100 ? '100%' : `${sizeRateNum}%`;
+          showToast(`限价单提交成功: ${limitOrderData.asset} @ ${priceNum} (${sizeRateText}) (${response.order_id || ''})`, 'success');
+        }
+        handleCloseLimitOrder();
+      } else {
+        showToast(`${limitOrderData.ip}: ${response.message || '操作失败'}`, 'error');
+      }
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error || err.message || '提交限价单失败';
+      showToast(`${limitOrderData.ip}: ${errorMsg}`, 'error');
+      secureLog.error(`提交限价单失败:`, err);
+    } finally {
+      setSubmittingLimitOrder(false);
+    }
+  };
+
   // 渲染仓位详情
   const renderPositionsData = (ip: string) => {
     const positions = positionsData.get(ip);
@@ -193,10 +294,13 @@ export default function WorkerStatus() {
     // 解析仓位数据，提取关键信息
     const extractPositions = (data: any): Array<{
       asset?: string;
-      symbol?: string;
+      title?: string;
+      outcome?: string;
       amount?: number;
       price?: number;
       value?: number;
+      currentValue?: number;
+      cashPnl?: number;
       [key: string]: any;
     }> => {
       if (Array.isArray(data)) {
@@ -236,28 +340,43 @@ export default function WorkerStatus() {
           <thead>
             <tr>
               <th>代币(Asset)</th>
-              <th>代币符号</th>
+              <th>Title</th>
+              <th>Outcome</th>
               <th>仓位数量</th>
-              <th>价格</th>
-              <th>市值</th>
+              <th>当前价值</th>
+              <th>盈亏</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
             {positionsList.map((pos, index) => {
               // 提取关键字段（支持多种可能的字段名）
               const asset = pos.asset || pos.tokenId || pos.token_id || pos.id || pos.symbol || '-';
-              const symbol = pos.symbol || pos.tokenSymbol || pos.token_symbol || '-';
+              const token_id = pos.token_id || pos.tokenId || pos.token || pos.id || asset || '-';
+              const title = pos.title || pos.Title || pos.TITLE || '-';
+              const outcome = pos.outcome || pos.Outcome || pos.OUTCOME || '-';
               const amount = pos.amount || pos.quantity || pos.size || pos.position || 0;
-              const price = pos.price || pos.currentPrice || pos.current_price || pos.marketPrice || pos.market_price || 0;
-              const value = pos.value || pos.totalValue || pos.total_value || (amount * price) || 0;
+              const currentValue = pos.currentValue || pos.current_value || pos.CurrentValue || pos.CURRENT_VALUE || 0;
+              const cashPnl = pos.cashPnl || pos.cash_pnl || pos.CashPnl || pos.CASH_PNL || 0;
 
               return (
                 <tr key={index}>
                   <td>{asset}</td>
-                  <td>{symbol}</td>
+                  <td>{title}</td>
+                  <td>{outcome}</td>
                   <td>{typeof amount === 'number' ? amount.toLocaleString('zh-CN', { maximumFractionDigits: 8 }) : amount}</td>
-                  <td>{typeof price === 'number' ? price.toLocaleString('zh-CN', { maximumFractionDigits: 4 }) : price}</td>
-                  <td>{typeof value === 'number' ? value.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : value}</td>
+                  <td>{typeof currentValue === 'number' ? currentValue.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : currentValue}</td>
+                  <td>{typeof cashPnl === 'number' ? cashPnl.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : cashPnl}</td>
+                  <td>
+                    <button
+                      className="limit-order-button"
+                      onClick={() => handleOpenLimitOrder(ip, token_id, asset, title, outcome, amount)}
+                      disabled={submittingLimitOrder || amount <= 0}
+                      title={`为 ${asset} 挂限价单`}
+                    >
+                      挂限价单
+                    </button>
+                  </td>
                 </tr>
               );
             })}
@@ -301,7 +420,7 @@ export default function WorkerStatus() {
       // 注意：生产环境建议工作机也配置HTTPS
       const protocol = isProductionEnvironment() ? 'https' : 'http';
       const url = `${protocol}://${ip}:8001/update`;
-      
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout * 1000);
 
@@ -397,15 +516,15 @@ export default function WorkerStatus() {
     if (!dataStr) return null;
     const businessData = parseBusinessData(dataStr);
     if (!businessData) return null;
-    
+
     // 查找代理钱包地址字段（支持多种命名）
     for (const [key, value] of Object.entries(businessData)) {
       const lowerKey = key.toLowerCase();
-      if (lowerKey === 'proxy_wallet' || lowerKey === 'proxy_wallet_address' || 
-          lowerKey === 'wallet.proxy_address' || lowerKey === 'wallet.proxy_wallet' ||
-          key === 'WALLET.PROXY_ADDRESS' || key === 'WALLET.PROXY_WALLET' ||
-          key.includes('代理钱包') || key.includes('代理地址') ||
-          /proxy.*wallet/i.test(key) || /proxy.*address/i.test(key)) {
+      if (lowerKey === 'proxy_wallet' || lowerKey === 'proxy_wallet_address' ||
+        lowerKey === 'wallet.proxy_address' || lowerKey === 'wallet.proxy_wallet' ||
+        key === 'WALLET.PROXY_ADDRESS' || key === 'WALLET.PROXY_WALLET' ||
+        key.includes('代理钱包') || key.includes('代理地址') ||
+        /proxy.*wallet/i.test(key) || /proxy.*address/i.test(key)) {
         return String(value);
       }
     }
@@ -417,7 +536,7 @@ export default function WorkerStatus() {
     if (!dataStr) return '-';
     const businessData = parseBusinessData(dataStr);
     if (!businessData) return '-';
-    
+
     // 查找匹配的字段（支持中英文）
     for (const [key, value] of Object.entries(businessData)) {
       if (fieldName === 'position_count' && (
@@ -435,8 +554,8 @@ export default function WorkerStatus() {
       if (fieldName === 'balance') {
         // 优先精确匹配 usdc_balance 字段（不区分大小写）
         const lowerKey = key.toLowerCase();
-        if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' || 
-            key === 'WALLET.USDC_BALANCE' || key === 'WALLET.USDC_BALANCE') {
+        if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' ||
+          key === 'WALLET.USDC_BALANCE' || key === 'WALLET.USDC_BALANCE') {
           const numValue = Number(value);
           if (!isNaN(numValue)) {
             return numValue.toFixed(2);
@@ -444,8 +563,8 @@ export default function WorkerStatus() {
           return String(value);
         }
         // 其次匹配包含 usdc 和 balance 的字段（排除 pol_balance）
-        if ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) && 
-            !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key)) {
+        if ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
+          !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key)) {
           const numValue = Number(value);
           if (!isNaN(numValue)) {
             return numValue.toFixed(2);
@@ -458,11 +577,11 @@ export default function WorkerStatus() {
         // 匹配 positions.value 或类似字段
         const lowerKey = key.toLowerCase();
         if (lowerKey === 'positions.value' || lowerKey === 'position.value' ||
-            key === 'positions.value' || key === 'POSITIONS.VALUE' ||
-            key === 'position.value' || key === 'POSITION.VALUE' ||
-            (key.includes('仓位') && key.includes('价值')) ||
-            (key.includes('持仓') && key.includes('价值')) ||
-            /position.*value/i.test(key)) {
+          key === 'positions.value' || key === 'POSITIONS.VALUE' ||
+          key === 'position.value' || key === 'POSITION.VALUE' ||
+          (key.includes('仓位') && key.includes('价值')) ||
+          (key.includes('持仓') && key.includes('价值')) ||
+          /position.*value/i.test(key)) {
           const numValue = Number(value);
           if (!isNaN(numValue)) {
             return numValue.toFixed(2);
@@ -486,9 +605,9 @@ export default function WorkerStatus() {
         // 匹配 version.number 或类似字段
         const lowerKey = key.toLowerCase();
         if (lowerKey === 'version.number' || lowerKey === 'version' ||
-            key === 'version.number' || key === 'VERSION.NUMBER' ||
-            key === 'VERSION' || key.includes('版本') ||
-            /version.*number/i.test(key) || /^version$/i.test(key)) {
+          key === 'version.number' || key === 'VERSION.NUMBER' ||
+          key === 'VERSION' || key.includes('版本') ||
+          /version.*number/i.test(key) || /^version$/i.test(key)) {
           return String(value);
         }
         // 尝试从嵌套对象中获取
@@ -518,7 +637,7 @@ export default function WorkerStatus() {
     if (fieldName === 'total_assets') {
       let positionValue = 0;
       let balance = 0;
-      
+
       // 获取仓位价值
       const positions = businessData.positions || businessData.POSITIONS;
       if (positions && typeof positions === 'object') {
@@ -535,11 +654,11 @@ export default function WorkerStatus() {
         for (const [key, value] of Object.entries(businessData)) {
           const lowerKey = key.toLowerCase();
           if (lowerKey === 'positions.value' || lowerKey === 'position.value' ||
-              key === 'positions.value' || key === 'POSITIONS.VALUE' ||
-              key === 'position.value' || key === 'POSITION.VALUE' ||
-              (key.includes('仓位') && key.includes('价值')) ||
-              (key.includes('持仓') && key.includes('价值')) ||
-              /position.*value/i.test(key)) {
+            key === 'positions.value' || key === 'POSITIONS.VALUE' ||
+            key === 'position.value' || key === 'POSITION.VALUE' ||
+            (key.includes('仓位') && key.includes('价值')) ||
+            (key.includes('持仓') && key.includes('价值')) ||
+            /position.*value/i.test(key)) {
             const numValue = Number(value);
             if (!isNaN(numValue)) {
               positionValue = numValue;
@@ -548,12 +667,12 @@ export default function WorkerStatus() {
           }
         }
       }
-      
+
       // 获取USDC余额
       for (const [key, value] of Object.entries(businessData)) {
         const lowerKey = key.toLowerCase();
-        if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' || 
-            key === 'WALLET.USDC_BALANCE') {
+        if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' ||
+          key === 'WALLET.USDC_BALANCE') {
           const numValue = Number(value);
           if (!isNaN(numValue)) {
             balance = numValue;
@@ -561,8 +680,8 @@ export default function WorkerStatus() {
           }
         }
         // 匹配包含 usdc 和 balance 的字段（排除 pol_balance）
-        if ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) && 
-            !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key)) {
+        if ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
+          !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key)) {
           const numValue = Number(value);
           if (!isNaN(numValue)) {
             balance = numValue;
@@ -570,7 +689,7 @@ export default function WorkerStatus() {
           }
         }
       }
-      
+
       // 计算资产总额
       const totalAssets = positionValue + balance;
       if (totalAssets > 0) {
@@ -611,8 +730,8 @@ export default function WorkerStatus() {
     const isKeyField = (key: string): boolean => {
       const lowerKey = key.toLowerCase();
       // 优先精确匹配 usdc_balance（不区分大小写，支持 WALLET.USDC_BALANCE）
-      if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' || 
-          key === 'WALLET.USDC_BALANCE') {
+      if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' ||
+        key === 'WALLET.USDC_BALANCE') {
         return true;
       }
       // 中文匹配持仓和挂单
@@ -620,18 +739,18 @@ export default function WorkerStatus() {
         return true;
       }
       // 英文匹配持仓和挂单
-      if (/position.*count/i.test(key) || /positions/i.test(key) || 
-          /order.*count/i.test(key) || /orders/i.test(key)) {
+      if (/position.*count/i.test(key) || /positions/i.test(key) ||
+        /order.*count/i.test(key) || /orders/i.test(key)) {
         return true;
       }
       // 匹配包含 usdc 和 balance 的字段（排除 pol_balance）
-      if ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) && 
-          !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key)) {
+      if ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
+        !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key)) {
         return true;
       }
       return false;
     };
-    
+
     // 重要字段匹配规则（系统状态相关）
     const isImportantField = (key: string): boolean => {
       const importantPatterns = [
@@ -641,12 +760,12 @@ export default function WorkerStatus() {
       ];
       return importantPatterns.some(pattern => pattern.test(key));
     };
-    
+
     // 分离关键字段、重要字段和其他字段
     const keyItems: Array<[string, any]> = [];
     const importantItems: Array<[string, any]> = [];
     const otherItems: Array<[string, any]> = [];
-    
+
     Object.entries(data).forEach(([key, value]) => {
       if (isKeyField(key)) {
         keyItems.push([key, value]);
@@ -656,7 +775,7 @@ export default function WorkerStatus() {
         otherItems.push([key, value]);
       }
     });
-    
+
     // 格式化值
     const formatValue = (value: any, key?: string): string => {
       if (value === null || value === undefined) return '-';
@@ -666,10 +785,10 @@ export default function WorkerStatus() {
       // 如果是余额相关字段，格式化为两位小数（只匹配 usdc_balance，排除 pol_balance）
       if (key) {
         const lowerKey = key.toLowerCase();
-        if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' || 
-            key === 'WALLET.USDC_BALANCE' ||
-            ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) && 
-             !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key))) {
+        if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' ||
+          key === 'WALLET.USDC_BALANCE' ||
+          ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
+            !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key))) {
           const numValue = Number(value);
           if (!isNaN(numValue)) {
             return numValue.toFixed(2);
@@ -678,7 +797,7 @@ export default function WorkerStatus() {
       }
       return String(value);
     };
-    
+
     return (
       <div className="business-data-container">
         {/* 关键业务指标 */}
@@ -697,7 +816,7 @@ export default function WorkerStatus() {
             </div>
           </div>
         )}
-        
+
         {/* 系统状态 */}
         {importantItems.length > 0 && (
           <div className="business-data-section">
@@ -714,7 +833,7 @@ export default function WorkerStatus() {
             </div>
           </div>
         )}
-        
+
         {/* 其他信息 */}
         {otherItems.length > 0 && (
           <div className="business-data-section">
@@ -738,12 +857,12 @@ export default function WorkerStatus() {
   // 过滤和排序状态列表
   const filteredAndSortedStatuses = React.useMemo(() => {
     let filtered = statuses;
-    
+
     // 隐藏离线机器
     if (hideOffline) {
       filtered = filtered.filter((status) => status.status !== 'offline');
     }
-    
+
     // 全局搜索过滤（搜索所有字段，包括业务数据）
     if (searchKeyword.trim()) {
       const keyword = searchKeyword.toLowerCase().trim();
@@ -758,7 +877,7 @@ export default function WorkerStatus() {
           (status.response_time && String(status.response_time).includes(keyword)) ||
           (status.status_code && String(status.status_code).includes(keyword))
         );
-        
+
         // 搜索业务数据
         let businessMatch = false;
         if (status.data) {
@@ -771,16 +890,16 @@ export default function WorkerStatus() {
             businessMatch = status.data.toLowerCase().includes(keyword);
           }
         }
-        
+
         return basicMatch || businessMatch;
       });
     }
-    
+
     // 按指定字段排序
     const sorted = [...filtered].sort((a, b) => {
       let valueA: any = '';
       let valueB: any = '';
-      
+
       switch (sortField) {
         case 'key_name':
           valueA = (a.key_name || '').toLowerCase();
@@ -810,7 +929,7 @@ export default function WorkerStatus() {
           valueA = (a.server_name || a.key_name || '').toLowerCase();
           valueB = (b.server_name || b.key_name || '').toLowerCase();
       }
-      
+
       if (typeof valueA === 'string' && typeof valueB === 'string') {
         if (sortOrder === 'asc') {
           return valueA.localeCompare(valueB, 'zh-CN');
@@ -825,7 +944,7 @@ export default function WorkerStatus() {
         }
       }
     });
-    
+
     return sorted;
   }, [statuses, searchKeyword, sortField, sortOrder, hideOffline]);
 
@@ -833,7 +952,7 @@ export default function WorkerStatus() {
   const stats = React.useMemo(() => {
     let totalAssets = 0;
     let totalBalance = 0;
-    
+
     filteredAndSortedStatuses.forEach((status) => {
       if (status.data) {
         const businessData = parseBusinessData(status.data);
@@ -846,7 +965,7 @@ export default function WorkerStatus() {
               totalAssets += numValue;
             }
           }
-          
+
           // 计算总余额（用于单独显示）
           const balance = getKeyMetricValue(status.data, 'balance');
           if (balance !== '-') {
@@ -858,7 +977,7 @@ export default function WorkerStatus() {
         }
       }
     });
-    
+
     return {
       total: filteredAndSortedStatuses.length,
       online: filteredAndSortedStatuses.filter((s) => s.status === 'online').length,
@@ -943,7 +1062,7 @@ export default function WorkerStatus() {
                   <thead>
                     <tr>
                       {selectedFields.includes('key_name') && (
-                        <th 
+                        <th
                           className="sortable-header"
                           onClick={() => {
                             if (sortField === 'key_name') {
@@ -959,7 +1078,7 @@ export default function WorkerStatus() {
                         </th>
                       )}
                       {selectedFields.includes('ip') && (
-                        <th 
+                        <th
                           className="sortable-header"
                           onClick={() => {
                             if (sortField === 'ip') {
@@ -975,7 +1094,7 @@ export default function WorkerStatus() {
                         </th>
                       )}
                       {selectedFields.includes('server_name') && (
-                        <th 
+                        <th
                           className="sortable-header"
                           onClick={() => {
                             if (sortField === 'server_name') {
@@ -991,7 +1110,7 @@ export default function WorkerStatus() {
                         </th>
                       )}
                       {selectedFields.includes('status') && (
-                        <th 
+                        <th
                           className="sortable-header"
                           onClick={() => {
                             if (sortField === 'status') {
@@ -1007,7 +1126,7 @@ export default function WorkerStatus() {
                         </th>
                       )}
                       {selectedFields.includes('response_time') && (
-                        <th 
+                        <th
                           className="sortable-header"
                           onClick={() => {
                             if (sortField === 'response_time') {
@@ -1025,7 +1144,7 @@ export default function WorkerStatus() {
                       {selectedFields.includes('status_code') && <th>HTTP状态码</th>}
                       {selectedFields.includes('error_msg') && <th>错误信息</th>}
                       {selectedFields.includes('checked_at') && (
-                        <th 
+                        <th
                           className="sortable-header"
                           onClick={() => {
                             if (sortField === 'checked_at') {
@@ -1050,150 +1169,150 @@ export default function WorkerStatus() {
                   </thead>
                   <tbody>
                     {filteredAndSortedStatuses.map((status) => {
-                    const businessData = parseBusinessData(status.data);
-                    const isExpanded = expandedRows.has(status.id);
-                    const colSpan = selectedFields.length + 1; // +1 for 操作列
-                    // 使用IP作为key，确保唯一性
-                    return (
-                      <React.Fragment key={status.ip || status.id}>
-                        <tr>
-                          {selectedFields.includes('key_name') && <td>{status.key_name}</td>}
-                          {selectedFields.includes('ip') && <td>{status.ip}</td>}
-                          {selectedFields.includes('server_name') && <td>{status.server_name || '-'}</td>}
-                          {selectedFields.includes('status') && <td>{getStatusBadge(status.status)}</td>}
-                          {selectedFields.includes('response_time') && (
-                            <td>{status.response_time || '-'}</td>
-                          )}
-                          {selectedFields.includes('status_code') && (
-                            <td>{status.status_code || '-'}</td>
-                          )}
-                          {selectedFields.includes('error_msg') && (
-                            <td className="error-cell">{status.error_msg || '-'}</td>
-                          )}
-                          {selectedFields.includes('checked_at') && (
-                            <td>{formatTime(status.checked_at)}</td>
-                          )}
-                          {selectedFields.includes('position_count') && (
-                            <td className="key-metric-cell">
-                              {getKeyMetricValue(status.data, 'position_count')}
-                            </td>
-                          )}
-                          {selectedFields.includes('order_count') && (
-                            <td className="key-metric-cell">
-                              {getKeyMetricValue(status.data, 'order_count')}
-                            </td>
-                          )}
-                          {selectedFields.includes('balance') && (
-                            <td className="key-metric-cell">
-                              {getKeyMetricValue(status.data, 'balance')}
-                            </td>
-                          )}
-                          {selectedFields.includes('total_assets') && (
-                            <td className="key-metric-cell">
-                              {getKeyMetricValue(status.data, 'total_assets')}
-                            </td>
-                          )}
-                          {selectedFields.includes('version_number') && (
-                            <td className="key-metric-cell">
-                              {getKeyMetricValue(status.data, 'version_number')}
-                            </td>
-                          )}
-                          <td>
-                            <div className="action-buttons">
-                              {businessData && (
-                                <button
-                                  className="detail-button"
-                                  onClick={() => toggleRowExpansion(status.id)}
-                                  title={isExpanded ? '收起详情' : '查看详情'}
-                                >
-                                  {isExpanded ? '▼' : '▶'}
-                                </button>
-                              )}
-                              {(() => {
-                                const proxyAddress = getProxyWalletAddress(status.data);
-                                return proxyAddress ? (
+                      const businessData = parseBusinessData(status.data);
+                      const isExpanded = expandedRows.has(status.id);
+                      const colSpan = selectedFields.length + 1; // +1 for 操作列
+                      // 使用IP作为key，确保唯一性
+                      return (
+                        <React.Fragment key={status.ip || status.id}>
+                          <tr>
+                            {selectedFields.includes('key_name') && <td>{status.key_name}</td>}
+                            {selectedFields.includes('ip') && <td>{status.ip}</td>}
+                            {selectedFields.includes('server_name') && <td>{status.server_name || '-'}</td>}
+                            {selectedFields.includes('status') && <td>{getStatusBadge(status.status)}</td>}
+                            {selectedFields.includes('response_time') && (
+                              <td>{status.response_time || '-'}</td>
+                            )}
+                            {selectedFields.includes('status_code') && (
+                              <td>{status.status_code || '-'}</td>
+                            )}
+                            {selectedFields.includes('error_msg') && (
+                              <td className="error-cell">{status.error_msg || '-'}</td>
+                            )}
+                            {selectedFields.includes('checked_at') && (
+                              <td>{formatTime(status.checked_at)}</td>
+                            )}
+                            {selectedFields.includes('position_count') && (
+                              <td className="key-metric-cell">
+                                {getKeyMetricValue(status.data, 'position_count')}
+                              </td>
+                            )}
+                            {selectedFields.includes('order_count') && (
+                              <td className="key-metric-cell">
+                                {getKeyMetricValue(status.data, 'order_count')}
+                              </td>
+                            )}
+                            {selectedFields.includes('balance') && (
+                              <td className="key-metric-cell">
+                                {getKeyMetricValue(status.data, 'balance')}
+                              </td>
+                            )}
+                            {selectedFields.includes('total_assets') && (
+                              <td className="key-metric-cell">
+                                {getKeyMetricValue(status.data, 'total_assets')}
+                              </td>
+                            )}
+                            {selectedFields.includes('version_number') && (
+                              <td className="key-metric-cell">
+                                {getKeyMetricValue(status.data, 'version_number')}
+                              </td>
+                            )}
+                            <td>
+                              <div className="action-buttons">
+                                {businessData && (
                                   <button
-                                    className="copy-button"
-                                    onClick={async () => {
-                                      try {
-                                        await navigator.clipboard.writeText(proxyAddress);
-                                        showToast('代理钱包地址已复制到剪贴板');
-                                      } catch (err) {
-                                        secureLog.error('复制失败:', err);
-                                        // 降级方案：使用传统方法
-                                        const textArea = document.createElement('textarea');
-                                        textArea.value = proxyAddress;
-                                        textArea.style.position = 'fixed';
-                                        textArea.style.opacity = '0';
-                                        document.body.appendChild(textArea);
-                                        textArea.select();
-                                        try {
-                                          document.execCommand('copy');
-                                          showToast('代理钱包地址已复制到剪贴板');
-                                        } catch (e) {
-                                          showToast('复制失败，请手动复制', 'error');
-                                        }
-                                        document.body.removeChild(textArea);
-                                      }
-                                    }}
-                                    title={`复制代理钱包地址: ${proxyAddress}`}
+                                    className="detail-button"
+                                    onClick={() => toggleRowExpansion(status.id)}
+                                    title={isExpanded ? '收起详情' : '查看详情'}
                                   >
-                                    📋
+                                    {isExpanded ? '▼' : '▶'}
                                   </button>
-                                ) : null;
-                              })()}
-                              {selectedFile && (
+                                )}
+                                {(() => {
+                                  const proxyAddress = getProxyWalletAddress(status.data);
+                                  return proxyAddress ? (
+                                    <button
+                                      className="copy-button"
+                                      onClick={async () => {
+                                        try {
+                                          await navigator.clipboard.writeText(proxyAddress);
+                                          showToast('代理钱包地址已复制到剪贴板');
+                                        } catch (err) {
+                                          secureLog.error('复制失败:', err);
+                                          // 降级方案：使用传统方法
+                                          const textArea = document.createElement('textarea');
+                                          textArea.value = proxyAddress;
+                                          textArea.style.position = 'fixed';
+                                          textArea.style.opacity = '0';
+                                          document.body.appendChild(textArea);
+                                          textArea.select();
+                                          try {
+                                            document.execCommand('copy');
+                                            showToast('代理钱包地址已复制到剪贴板');
+                                          } catch (e) {
+                                            showToast('复制失败，请手动复制', 'error');
+                                          }
+                                          document.body.removeChild(textArea);
+                                        }
+                                      }}
+                                      title={`复制代理钱包地址: ${proxyAddress}`}
+                                    >
+                                      📋
+                                    </button>
+                                  ) : null;
+                                })()}
+                                {selectedFile && (
+                                  <button
+                                    className="upload-button"
+                                    onClick={() => handleUploadFile(status.ip)}
+                                    disabled={uploading.has(status.ip)}
+                                    title={`上传文件到 ${status.ip}`}
+                                  >
+                                    {uploading.has(status.ip) ? '上传中...' : '上传'}
+                                  </button>
+                                )}
                                 <button
-                                  className="upload-button"
-                                  onClick={() => handleUploadFile(status.ip)}
-                                  disabled={uploading.has(status.ip)}
-                                  title={`上传文件到 ${status.ip}`}
+                                  className="positions-button"
+                                  onClick={() => loadWorkerPositions(status.ip)}
+                                  disabled={loadingPositions.has(status.ip)}
+                                  title={`获取 ${status.ip} 的仓位信息`}
                                 >
-                                  {uploading.has(status.ip) ? '上传中...' : '上传'}
+                                  {loadingPositions.has(status.ip) ? '加载中...' : '仓位'}
                                 </button>
-                              )}
-                              <button
-                                className="positions-button"
-                                onClick={() => loadWorkerPositions(status.ip)}
-                                disabled={loadingPositions.has(status.ip)}
-                                title={`获取 ${status.ip} 的仓位信息`}
-                              >
-                                {loadingPositions.has(status.ip) ? '加载中...' : '仓位'}
-                              </button>
-                              <button
-                                className="check-button"
-                                onClick={() => handleCheckStatus(status.ip)}
-                              >
-                                检查
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                        {isExpanded && (
-                          <tr className="detail-row">
-                            <td colSpan={colSpan} className="detail-cell">
-                              <div className="detail-content">
-                                {/* 只显示仓位信息，不显示业务信息 */}
-                                {showPositionsRows.has(status.ip) ? (
-                                  <div className="positions-section">
-                                    {renderPositionsData(status.ip)}
-                                  </div>
-                                ) : businessData ? (
-                                  <>
-                                    <div className="detail-header">
-                                      <h4>工作机业务信息</h4>
-                                      <span className="detail-subtitle">{status.key_name} ({status.ip})</span>
-                                    </div>
-                                    {renderBusinessData(businessData)}
-                                  </>
-                                ) : null}
+                                <button
+                                  className="check-button"
+                                  onClick={() => handleCheckStatus(status.ip)}
+                                >
+                                  检查
+                                </button>
                               </div>
                             </td>
                           </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
+                          {isExpanded && (
+                            <tr className="detail-row">
+                              <td colSpan={colSpan} className="detail-cell">
+                                <div className="detail-content">
+                                  {/* 只显示仓位信息，不显示业务信息 */}
+                                  {showPositionsRows.has(status.ip) ? (
+                                    <div className="positions-section">
+                                      {renderPositionsData(status.ip)}
+                                    </div>
+                                  ) : businessData ? (
+                                    <>
+                                      <div className="detail-header">
+                                        <h4>工作机业务信息</h4>
+                                        <span className="detail-subtitle">{status.key_name} ({status.ip})</span>
+                                      </div>
+                                      {renderBusinessData(businessData)}
+                                    </>
+                                  ) : null}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -1317,6 +1436,93 @@ export default function WorkerStatus() {
           </div>
         </div>
       </div>
+
+      {/* 限价单对话框 */}
+      {showLimitOrderModal && limitOrderData && (
+        <div className="modal-overlay" onClick={handleCloseLimitOrder}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>挂限价单</h3>
+              <button className="modal-close" onClick={handleCloseLimitOrder}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="limit-order-info">
+                <div className="info-item">
+                  <label>工作机IP:</label>
+                  <span>{limitOrderData.ip}</span>
+                </div>
+                <div className="info-item">
+                  <label>代币(Asset):</label>
+                  <span>{limitOrderData.asset}</span>
+                </div>
+                <div className="info-item">
+                  <label>Token ID:</label>
+                  <span style={{ fontSize: '11px', wordBreak: 'break-all' }}>{limitOrderData.token_id}</span>
+                </div>
+                <div className="info-item">
+                  <label>Title:</label>
+                  <span>{limitOrderData.title}</span>
+                </div>
+                <div className="info-item">
+                  <label>Outcome:</label>
+                  <span>{limitOrderData.outcome}</span>
+                </div>
+                <div className="info-item">
+                  <label>当前仓位数量:</label>
+                  <span>{limitOrderData.amount.toLocaleString('zh-CN', { maximumFractionDigits: 8 })}</span>
+                </div>
+              </div>
+              <div className="limit-order-form">
+                <div className="form-group">
+                  <label>限价价格 *</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={limitOrderForm.price}
+                    onChange={(e) => setLimitOrderForm({ ...limitOrderForm, price: e.target.value })}
+                    placeholder="请输入限价价格"
+                    disabled={submittingLimitOrder}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>仓位百分比 (%) *</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value={limitOrderForm.size_rate}
+                    onChange={(e) => setLimitOrderForm({ ...limitOrderForm, size_rate: e.target.value })}
+                    placeholder="请输入仓位百分比 (0-100，默认100%)"
+                    disabled={submittingLimitOrder}
+                  />
+                  <small style={{ color: '#666', fontSize: '12px', marginTop: '4px', display: 'block' }}>
+                    默认100%表示使用全部仓位，可指定0-100之间的百分比
+                  </small>
+                </div>
+              </div>
+              <div className="modal-actions">
+                <button
+                  className="btn-secondary"
+                  onClick={handleCloseLimitOrder}
+                  disabled={submittingLimitOrder}
+                >
+                  取消
+                </button>
+                <button
+                  className="btn-primary"
+                  onClick={handleSubmitLimitOrder}
+                  disabled={submittingLimitOrder || !limitOrderForm.price || !limitOrderForm.size_rate}
+                >
+                  {submittingLimitOrder ? '提交中...' : '提交限价单'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

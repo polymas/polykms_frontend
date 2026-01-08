@@ -363,5 +363,49 @@ export const workersAPI = {
     const response = await api.get<any>(`/api/v1/proxy/${encodeURIComponent(ip)}/positions`);
     return response.data;
   },
+
+  /**
+   * 通过代理接口调用工作机接口（支持所有HTTP方法）
+   */
+  proxyToWorker: async (ip: string, method: string, path: string, data?: any): Promise<any> => {
+    const config: any = {
+      method: method.toLowerCase(),
+      url: `/api/v1/proxy/${encodeURIComponent(ip)}${path}`,
+    };
+    if (data && (method.toLowerCase() === 'post' || method.toLowerCase() === 'put' || method.toLowerCase() === 'patch')) {
+      config.data = data;
+    }
+    const response = await api.request(config);
+    return response.data;
+  },
+};
+
+// 订单相关类型定义
+export interface ModifyLimitOrderRequest {
+  ip: string;
+  token_id: string;
+  price: number;
+  size_rate?: number; // 仓位百分比（可选，默认100%），范围0-100
+}
+
+export interface ModifyLimitOrderResponse {
+  success: boolean;
+  action: 'cancel' | 'create';
+  message: string;
+  has_position: boolean;
+  has_order: boolean;
+  order_id?: string;
+  canceled_id?: string;
+}
+
+// 订单API
+export const ordersAPI = {
+  /**
+   * 改挂限价单：先查询仓位和挂单，如果有仓位有挂单就取消对应仓位挂单，如果没挂单就挂单
+   */
+  modifyLimitOrder: async (data: ModifyLimitOrderRequest): Promise<ModifyLimitOrderResponse> => {
+    const response = await api.post<ModifyLimitOrderResponse>('/api/v1/orders/modify-limit', data);
+    return response.data;
+  },
 };
 

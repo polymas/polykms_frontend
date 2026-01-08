@@ -432,7 +432,7 @@
   background-color: white;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  padding: 15px;
+  padding: 10px;
 }
 
 .empty-message {
@@ -455,11 +455,12 @@
 }
 
 .worker-status-table th {
-  padding: 12px;
+  padding: 6px 8px;
   text-align: left;
   font-weight: 600;
   color: #333;
   border-bottom: 2px solid #dee2e6;
+  font-size: 13px;
 }
 
 .sortable-header {
@@ -484,8 +485,10 @@
 }
 
 .worker-status-table td {
-  padding: 12px;
+  padding: 6px 8px;
   border-bottom: 1px solid #dee2e6;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .key-metric-cell {
@@ -502,9 +505,9 @@
 /* 状态徽章 */
 .status-badge {
   display: inline-block;
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -539,18 +542,18 @@
 /* 操作按钮 */
 .action-buttons {
   display: flex;
-  gap: 5px;
+  gap: 4px;
   align-items: center;
 }
 
 .check-button {
-  padding: 4px 12px;
+  padding: 3px 10px;
   background-color: #17a2b8;
   color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .check-button:hover {
@@ -558,14 +561,14 @@
 }
 
 .detail-button {
-  padding: 4px 8px;
+  padding: 3px 6px;
   background-color: #6c757d;
   color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
-  min-width: 30px;
+  font-size: 11px;
+  min-width: 28px;
 }
 
 .detail-button:hover {
@@ -594,13 +597,13 @@
 }
 
 .upload-button {
-  padding: 4px 12px;
+  padding: 3px 10px;
   background-color: #28a745;
   color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
   transition: all 0.2s;
 }
 
@@ -618,10 +621,10 @@
   background-color: #17a2b8;
   color: white;
   border: none;
-  padding: 6px 12px;
+  padding: 4px 10px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   transition: background-color 0.2s;
 }
@@ -631,6 +634,27 @@
 }
 
 .positions-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.limit-order-button {
+  background-color: #ffc107;
+  color: #333;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.limit-order-button:hover:not(:disabled) {
+  background-color: #e0a800;
+}
+
+.limit-order-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -667,19 +691,20 @@
 }
 
 .positions-table th {
-  padding: 12px;
+  padding: 6px 8px;
   text-align: left;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
   color: #495057;
   border-bottom: 2px solid #dee2e6;
 }
 
 .positions-table td {
-  padding: 10px 12px;
-  font-size: 13px;
+  padding: 6px 8px;
+  font-size: 12px;
   color: #333;
   border-bottom: 1px solid #f0f0f0;
+  line-height: 1.4;
 }
 
 .positions-table tbody tr:hover {
@@ -763,6 +788,125 @@
   padding: 20px;
   overflow: auto;
   flex: 1;
+}
+
+/* 限价单对话框样式 */
+.limit-order-info {
+  background-color: #f8f9fa;
+  border-radius: 6px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.limit-order-info .info-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.limit-order-info .info-item:last-child {
+  border-bottom: none;
+}
+
+.limit-order-info .info-item label {
+  font-weight: 600;
+  color: #495057;
+  font-size: 14px;
+}
+
+.limit-order-info .info-item span {
+  color: #212529;
+  font-size: 14px;
+}
+
+.limit-order-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.limit-order-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.limit-order-form .form-group label {
+  font-weight: 600;
+  color: #495057;
+  font-size: 14px;
+}
+
+.limit-order-form .form-group input {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.limit-order-form .form-group input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.limit-order-form .form-group input:disabled {
+  background-color: #e9ecef;
+  cursor: not-allowed;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 15px;
+  border-top: 1px solid #dee2e6;
+}
+
+.btn-primary {
+  padding: 8px 16px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.btn-primary:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.btn-secondary {
+  padding: 8px 16px;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: #5a6268;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .positions-data {
