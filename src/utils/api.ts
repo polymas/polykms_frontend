@@ -218,7 +218,8 @@ export interface WorkerStatus {
   response_time: number;
   status_code: number;
   error_msg?: string;
-  data?: string; // JSON字符串格式的业务数据
+  data?: string; // JSON字符串格式的业务数据（/status 接口返回）
+  info_data?: string; // JSON字符串格式的静态信息（/info 接口返回）
   checked_at: string;
   created_at: string;
 }
@@ -323,9 +324,11 @@ export const secretsAPI = {
 export const workersAPI = {
   /**
    * 获取所有工作机的最新状态
+   * @param hideOffline 如果为true，后端会过滤掉所有离线机器（包括error状态）
    */
-  getWorkerStatuses: async (): Promise<WorkerStatusListResponse> => {
-    const response = await api.get<WorkerStatusListResponse>('/api/v1/workers/status');
+  getWorkerStatuses: async (hideOffline?: boolean): Promise<WorkerStatusListResponse> => {
+    const params = hideOffline ? { hide_offline: 'true' } : {};
+    const response = await api.get<WorkerStatusListResponse>('/api/v1/workers/status', { params });
     return response.data;
   },
 
@@ -353,6 +356,14 @@ export const workersAPI = {
    */
   checkWorkerStatus: async (ip: string): Promise<WorkerStatus> => {
     const response = await api.post<WorkerStatus>(`/api/v1/workers/status/${encodeURIComponent(ip)}/check`);
+    return response.data;
+  },
+
+  /**
+   * 获取特定工作机的静态信息（通过代理接口，只在加载时调用一次）
+   */
+  getWorkerInfo: async (ip: string): Promise<any> => {
+    const response = await api.get<any>(`/api/v1/proxy/${encodeURIComponent(ip)}/info`);
     return response.data;
   },
 
