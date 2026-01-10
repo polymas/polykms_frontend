@@ -1287,7 +1287,7 @@ export default function WorkerStatus() {
                       };
 
                       // 调试：记录数据解析情况（仅在开发环境）
-                      if (process.env.NODE_ENV === 'development' && status.ip) {
+                      if (import.meta.env.DEV && status.ip) {
                         if (Object.keys(staticInfo).length === 0 && Object.keys(dynamicData || {}).length === 0) {
                           console.debug(`[WorkerStatus] ${status.ip}: info_data=${status.info_data?.substring(0, 100)}, data=${status.data?.substring(0, 100)}`);
                         }
