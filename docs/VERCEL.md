@@ -1,6 +1,37 @@
 # Vercel 部署配置说明
 
-## 问题说明
+## 路由配置（解决404问题）
+
+项目已包含 `vercel.json` 配置文件，用于解决SPA（单页应用）路由的404问题。
+
+### 问题说明
+
+当直接访问子路由（如 `/secrets`、`/workers`）时，Vercel会尝试查找对应的文件或目录，找不到就会返回404。这是因为React Router是客户端路由，需要将所有路由请求重定向到 `index.html`，让React Router来处理路由。
+
+### 解决方案
+
+`vercel.json` 配置文件会将所有路由请求重写到 `index.html`：
+
+```json
+{
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
+```
+
+### 注意事项
+
+1. **静态资源**：Vercel会自动处理静态资源（JS、CSS、图片等），不会被重写规则影响
+2. **API请求**：生产环境中，API请求会直接发送到后端服务器（通过 `VITE_API_BASE_URL`），不会经过Vercel的重写规则
+3. **开发环境**：开发环境使用Vite代理，不受此配置影响
+
+## 环境变量配置
+
+### 问题说明
 
 当部署到 Vercel 时，Vite 的构建模式（`import.meta.env.MODE`）会自动设置为 `production`，但这**不会**影响我们的环境判断逻辑。
 
