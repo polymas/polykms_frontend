@@ -23,10 +23,6 @@ export default function SecretManagement() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // 批量上传相关状态
-  const [batchInput, setBatchInput] = useState('');
-  const [uploading, setUploading] = useState(false);
-
   // 单个密钥上传表单状态
   const [showAddForm, setShowAddForm] = useState(false);
   const [formData, setFormData] = useState<StoreSecretRequest>({
@@ -40,9 +36,12 @@ export default function SecretManagement() {
     api_passphrase: '',
     private_key: '',
     wallet_type: '',
-    signature_type: 1,
+    signature_type: 0,
   });
   const [submitting, setSubmitting] = useState(false);
+  
+  // 签名类型多选状态（0=EOA, 1=email, 2=key）
+  const [selectedSignatureTypes, setSelectedSignatureTypes] = useState<number[]>([]);
 
   // 查询和解密相关状态
   const [selectedKeyName, setSelectedKeyName] = useState('');
@@ -79,114 +78,41 @@ export default function SecretManagement() {
     loadSecrets();
   }, []);
 
-  // 批量上传密钥（支持JSON格式）
-  const handleBatchUpload = async () => {
-    if (!batchInput.trim()) {
-      setError('请输入密钥数据');
-      return;
+  // 根据签名类型获取钱包类型
+  const getWalletTypeFromSignatureType = (signatureType: number): string => {
+    const typeMap: { [key: number]: string } = {
+      0: 'EOA',
+      1: 'email',
+      2: 'key',
+    };
+    return typeMap[signatureType] || '';
+  };
+
+  // 处理签名类型选择变化
+  const handleSignatureTypeChange = (signatureType: number, checked: boolean) => {
+    let newSelectedTypes: number[];
+    if (checked) {
+      newSelectedTypes = [...selectedSignatureTypes, signatureType];
+    } else {
+      newSelectedTypes = selectedSignatureTypes.filter(t => t !== signatureType);
     }
-
-    setUploading(true);
-    setError('');
-    setSuccess('');
-
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('未找到登录token');
-        return;
-      }
-      const clientKey = parseJWT(token);
-
-      // 尝试解析为JSON数组
-      let secretsToUpload: StoreSecretRequest[] = [];
-      try {
-        const jsonData = JSON.parse(batchInput);
-        if (Array.isArray(jsonData)) {
-          // JSON数组格式
-          secretsToUpload = await Promise.all(
-            jsonData.map(async (item) => {
-              const secret: StoreSecretRequest = {
-                key_name: item.key_name || item.keyName || '',
-                active: item.active !== undefined ? item.active : true,
-                server_name: item.server_name || item.serverName || '',
-                ip: item.ip || item.IP || '',
-                proxy_address: item.proxy_address || item.proxyAddress || '',
-                wallet_type: item.wallet_type || item.walletType || '',
-                signature_type: item.signature_type || item.signatureType || 1,
-              };
-
-              // 只加密需要后端加密存储的字段：private_key 和 api_secret
-              if (item.private_key || item.privateKey) {
-                secret.private_key = await encryptSecret(
-                  item.private_key || item.privateKey,
-                  clientKey
-                );
-              }
-              if (item.api_secret || item.apiSecret) {
-                secret.api_secret = await encryptSecret(item.api_secret || item.apiSecret, clientKey);
-              }
-              
-              // api_key 和 api_passphrase 后端明文存储，前端直接发送明文
-              if (item.api_key || item.apiKey) {
-                secret.api_key = item.api_key || item.apiKey;
-              }
-              if (item.api_passphrase || item.apiPassphrase) {
-                secret.api_passphrase = item.api_passphrase || item.apiPassphrase;
-              }
-
-              return secret;
-            })
-          );
-        } else {
-          throw new Error('JSON格式错误：必须是数组');
-        }
-      } catch (jsonError) {
-        // 如果不是JSON，尝试解析为旧格式：key_name:value 或 key_name:value:description
-        const lines = batchInput.trim().split('\n').filter(line => line.trim());
-        for (const line of lines) {
-          const parts = line.split(':').map(p => p.trim());
-          if (parts.length < 2) {
-            throw new Error(`格式错误: ${line}。支持JSON数组格式或 key_name:value 格式`);
-          }
-
-          const secret: StoreSecretRequest = {
-            key_name: parts[0],
-          };
-
-          // 加密private_key
-          if (parts[1]) {
-            secret.private_key = await encryptSecret(parts[1], clientKey);
-          }
-
-          secretsToUpload.push(secret);
-        }
-      }
-
-      if (secretsToUpload.length === 0) {
-        setError('没有有效的密钥数据');
-        return;
-      }
-
-      const result = await secretsAPI.storeSecretsBatch(secretsToUpload);
-      
-      if (result.failed.length > 0) {
-        setError(`成功上传 ${result.success.length} 个，失败 ${result.failed.length} 个`);
-        if (result.success.length > 0) {
-          setSuccess(`成功: ${result.success.map(s => s.key_name).join(', ')}`);
-        }
-        const failedNames = result.failed.map(f => `${f.secret.key_name}: ${f.error}`).join('\n');
-        setError((prev) => prev + '\n失败详情:\n' + failedNames);
-      } else {
-        setSuccess(`成功上传 ${result.success.length} 个密钥`);
-        setError('');
-        setBatchInput('');
-        await loadSecrets();
-      }
-    } catch (err: any) {
-      setError(getSafeErrorMessage(err, '批量上传失败'));
-    } finally {
-      setUploading(false);
+    setSelectedSignatureTypes(newSelectedTypes);
+    
+    // 如果选择了类型，使用最新选择的类型（如果取消选择，使用剩余的第一个）
+    if (newSelectedTypes.length > 0) {
+      // 如果刚选择了一个类型，使用它；否则使用第一个
+      const typeToUse = checked ? signatureType : newSelectedTypes[0];
+      setFormData({
+        ...formData,
+        signature_type: typeToUse,
+        wallet_type: getWalletTypeFromSignatureType(typeToUse),
+      });
+    } else {
+      setFormData({
+        ...formData,
+        signature_type: 0,
+        wallet_type: '',
+      });
     }
   };
 
@@ -207,13 +133,10 @@ export default function SecretManagement() {
       return;
     }
 
-    // IP地址验证
-    if (formData.ip) {
-      const ipValidation = validateIP(formData.ip);
-      if (!ipValidation.valid) {
-        setError(ipValidation.error || 'IP地址格式不正确');
-        return;
-      }
+    // 验证签名类型
+    if (selectedSignatureTypes.length === 0) {
+      setError('请至少选择一个签名类型');
+      return;
     }
 
     // 代理地址验证
@@ -236,15 +159,15 @@ export default function SecretManagement() {
       }
       const clientKey = parseJWT(token);
 
-      // 构建上传数据（清理输入）
+      // 构建上传数据（清理输入，IP地址不传，由后端自动填写）
       const secretToUpload: StoreSecretRequest = {
         key_name: sanitizeInput(formData.key_name),
         active: formData.active !== undefined ? formData.active : true,
         server_name: formData.server_name ? sanitizeInput(formData.server_name) : '',
-        ip: formData.ip || '',
+        ip: '', // IP地址不传，后端根据请求IP自动填写
         proxy_address: formData.proxy_address || '',
         wallet_type: formData.wallet_type ? sanitizeInput(formData.wallet_type) : '',
-        signature_type: formData.signature_type || 1,
+        signature_type: formData.signature_type || 0,
       };
 
       // 只加密需要后端加密存储的字段：private_key 和 api_secret
@@ -276,8 +199,9 @@ export default function SecretManagement() {
         api_passphrase: '',
         private_key: '',
         wallet_type: '',
-        signature_type: 1,
+        signature_type: 0,
       });
+      setSelectedSignatureTypes([]);
       setShowAddForm(false);
       await loadSecrets();
     } catch (err: any) {
@@ -440,15 +364,6 @@ export default function SecretManagement() {
                   placeholder="例如: server_001"
                 />
               </div>
-              <div className="form-group">
-                <label>IP地址</label>
-                <input
-                  type="text"
-                  value={formData.ip}
-                  onChange={(e) => setFormData({ ...formData, ip: e.target.value })}
-                  placeholder="例如: 192.168.1.100"
-                />
-              </div>
             </div>
             <div className="form-row">
               <div className="form-group">
@@ -460,23 +375,39 @@ export default function SecretManagement() {
                   placeholder="代理地址"
                 />
               </div>
+            </div>
+            <div className="form-row">
               <div className="form-group">
-                <label>钱包类型</label>
-                <input
-                  type="text"
-                  value={formData.wallet_type}
-                  onChange={(e) => setFormData({ ...formData, wallet_type: e.target.value })}
-                  placeholder="例如: EOA"
-                />
-              </div>
-              <div className="form-group">
-                <label>签名类型</label>
-                <input
-                  type="number"
-                  value={formData.signature_type || 1}
-                  onChange={(e) => setFormData({ ...formData, signature_type: parseInt(e.target.value) || 1 })}
-                  placeholder="例如: 1"
-                />
+                <label>签名类型 *</label>
+                <div className="signature-type-buttons">
+                  <label className="signature-type-button">
+                    <input
+                      type="checkbox"
+                      checked={selectedSignatureTypes.includes(0)}
+                      onChange={(e) => handleSignatureTypeChange(0, e.target.checked)}
+                    />
+                    <span>EOA (0)</span>
+                  </label>
+                  <label className="signature-type-button">
+                    <input
+                      type="checkbox"
+                      checked={selectedSignatureTypes.includes(1)}
+                      onChange={(e) => handleSignatureTypeChange(1, e.target.checked)}
+                    />
+                    <span>Email (1)</span>
+                  </label>
+                  <label className="signature-type-button">
+                    <input
+                      type="checkbox"
+                      checked={selectedSignatureTypes.includes(2)}
+                      onChange={(e) => handleSignatureTypeChange(2, e.target.checked)}
+                    />
+                    <span>Key (2)</span>
+                  </label>
+                </div>
+                <div className="form-hint">
+                  钱包类型将根据选择的签名类型自动设置
+                </div>
               </div>
             </div>
             <div className="form-row">
@@ -591,41 +522,6 @@ export default function SecretManagement() {
             </button>
           </div>
         )}
-      </div>
-
-      {/* 批量上传区域 */}
-      <div className="section">
-        <h2>批量上传密钥</h2>
-        <p className="section-description">
-          支持JSON数组格式或旧格式（每行一个密钥）：
-          <br />
-          <code>key_name:value</code> 或 JSON数组格式
-        </p>
-        <textarea
-          className="batch-input"
-          value={batchInput}
-          onChange={(e) => setBatchInput(e.target.value)}
-          placeholder={`JSON格式示例：
-[{
-  "key_name": "server_001",
-  "server_name": "server_001",
-  "ip": "192.168.1.100",
-  "private_key": "0x1234...",
-  "wallet_type": "EOA"
-}]
-
-或旧格式：
-my_key1:0x1234567890abcdef`}
-          rows={12}
-          disabled={uploading}
-        />
-        <button
-          onClick={handleBatchUpload}
-          disabled={uploading || !batchInput.trim()}
-          className="btn-primary"
-        >
-          {uploading ? '上传中...' : '批量上传'}
-        </button>
       </div>
 
       {/* 密钥列表 */}
