@@ -221,3 +221,36 @@ export function validateURL(url: string): { valid: boolean; error?: string } {
   }
 }
 
+/**
+ * 验证代理地址（支持URL格式或以太坊地址格式）
+ * @param proxyAddress 代理地址
+ * @returns 验证结果 { valid: boolean, error?: string }
+ */
+export function validateProxyAddress(proxyAddress: string): { valid: boolean; error?: string } {
+  if (!proxyAddress || proxyAddress.trim().length === 0) {
+    return { valid: true }; // 代理地址是可选的
+  }
+
+  const trimmed = proxyAddress.trim();
+
+  // 首先尝试验证为URL格式
+  try {
+    const urlObj = new URL(trimmed);
+    // 只允许 http 和 https 协议
+    if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
+      return { valid: true };
+    }
+  } catch {
+    // 不是URL格式，继续验证其他格式
+  }
+
+  // 验证以太坊地址格式（0x开头的42个字符的十六进制字符串）
+  const ethereumAddressRegex = /^0x[a-fA-F0-9]{40}$/;
+  if (ethereumAddressRegex.test(trimmed)) {
+    return { valid: true };
+  }
+
+  // 如果都不匹配，返回错误
+  return { valid: false, error: '代理地址格式不正确，请输入URL（如 http://example.com）或以太坊地址（如 0x...）' };
+}
+

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { secretsAPI, StoreSecretRequest, ListSecretsResponse, Secret } from '../utils/api';
 import { parseJWT, decryptSecret, encryptSecret } from '../utils/crypto';
-import { validateKeyName, validateIP, validateURL, sanitizeInput } from '../utils/validation';
+import { validateKeyName, validateIP, validateProxyAddress, sanitizeInput } from '../utils/validation';
 import { getSafeErrorMessage } from '../utils/security';
 import './SecretManagement.css';
 
@@ -218,9 +218,9 @@ export default function SecretManagement() {
 
     // 代理地址验证
     if (formData.proxy_address) {
-      const urlValidation = validateURL(formData.proxy_address);
-      if (!urlValidation.valid) {
-        setError(urlValidation.error || '代理地址格式不正确');
+      const proxyValidation = validateProxyAddress(formData.proxy_address);
+      if (!proxyValidation.valid) {
+        setError(proxyValidation.error || '代理地址格式不正确');
         return;
       }
     }
