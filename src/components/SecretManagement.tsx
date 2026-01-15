@@ -1,9 +1,33 @@
 import { useState, useEffect } from 'react';
+import { 
+  Card, 
+  Form, 
+  Input, 
+  Button, 
+  Radio, 
+  Space, 
+  Row, 
+  Col, 
+  Table, 
+  Tag, 
+  message, 
+  Typography, 
+  Descriptions,
+  Alert,
+  Divider
+} from 'antd';
+import { 
+  EyeOutlined, 
+  EyeInvisibleOutlined, 
+  ReloadOutlined,
+  CopyOutlined
+} from '@ant-design/icons';
 import { secretsAPI, StoreSecretRequest, ListSecretsResponse, Secret } from '../utils/api';
 import { parseJWT, decryptSecret, encryptSecret } from '../utils/crypto';
-import { validateKeyName, validateIP, validateProxyAddress, sanitizeInput } from '../utils/validation';
+import { validateKeyName, validateProxyAddress, sanitizeInput } from '../utils/validation';
 import { getSafeErrorMessage } from '../utils/security';
-import './SecretManagement.css';
+
+const { Text } = Typography;
 
 interface DecryptedSecretData {
   server_name?: string;
@@ -18,25 +42,9 @@ interface DecryptedSecretData {
 }
 
 export default function SecretManagement() {
+  const [form] = Form.useForm();
   const [secrets, setSecrets] = useState<ListSecretsResponse['secrets']>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-
-  // 单个密钥上传表单状态（不再需要展开/收起状态）
-  const [formData, setFormData] = useState<StoreSecretRequest>({
-    key_name: '',
-    active: true, // 默认激活，不显示复选框
-    server_name: '',
-    ip: '',
-    proxy_address: '',
-    api_key: '',
-    api_secret: '',
-    api_passphrase: '',
-    private_key: '',
-    wallet_type: 'key', // 默认钱包类型为key
-    signature_type: 2, // 默认签名类型为key (2)
-  });
   const [submitting, setSubmitting] = useState(false);
 
   // 查询和解密相关状态
@@ -44,26 +52,14 @@ export default function SecretManagement() {
   const [decryptedData, setDecryptedData] = useState<DecryptedSecretData | null>(null);
   const [decrypting, setDecrypting] = useState(false);
 
-  // Toast 提示状态
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-
-  // 敏感字段显示/隐藏状态
-  const [showPrivateKey, setShowPrivateKey] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [showApiSecret, setShowApiSecret] = useState(false);
-  const [showApiPassphrase, setShowApiPassphrase] = useState(false);
-
   // 加载密钥列表
   const loadSecrets = async () => {
     setLoading(true);
-    setError('');
     try {
       const response = await secretsAPI.listSecrets();
-      // 确保 secrets 始终是数组，防止 undefined 错误
       setSecrets(response?.secrets || []);
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || '加载密钥列表失败');
-      // 发生错误时，确保 secrets 是空数组
+      message.error(err.response?.data?.error || err.message || '加载密钥列表失败');
       setSecrets([]);
     } finally {
       setLoading(false);
@@ -84,112 +80,77 @@ export default function SecretManagement() {
     return typeMap[signatureType] || '';
   };
 
-  // 处理签名类型选择变化（单选）
-  const handleSignatureTypeChange = (signatureType: number) => {
-    setFormData({
-      ...formData,
+  // 处理签名类型选择变化
+  const handleSignatureTypeChange = (e: any) => {
+    const signatureType = e.target.value;
+    form.setFieldsValue({
       signature_type: signatureType,
       wallet_type: getWalletTypeFromSignatureType(signatureType),
     });
   };
-  
+
   // 处理密钥名称变化，同时更新服务器名称
-  const handleKeyNameChange = (keyName: string) => {
-    setFormData({
-      ...formData,
+  const handleKeyNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const keyName = e.target.value;
+    form.setFieldsValue({
       key_name: keyName,
       server_name: keyName, // 密钥名称和服务器名称保持一致
     });
   };
 
   // 单个密钥上传
-  const handleSubmitSecret = async () => {
-    setError('');
-    setSuccess('');
-
-    // 输入验证
-    const keyNameValidation = validateKeyName(formData.key_name);
-    if (!keyNameValidation.valid) {
-      setError(keyNameValidation.error || '密钥名称验证失败');
-      return;
-    }
-
-    if (!formData.private_key && !formData.api_key && !formData.api_secret && !formData.api_passphrase) {
-      setError('至少需要提供私钥、api_key、api_secret或api_passphrase中的一个');
-      return;
-    }
-
-    // 验证签名类型
-    if (formData.signature_type === undefined || formData.signature_type === null) {
-      setError('请选择签名类型');
-      return;
-    }
-
-    // 代理地址验证
-    if (formData.proxy_address) {
-      const proxyValidation = validateProxyAddress(formData.proxy_address);
-      if (!proxyValidation.valid) {
-        setError(proxyValidation.error || '代理地址格式不正确');
-        return;
-      }
-    }
-
+  const handleSubmitSecret = async (values: any) => {
     setSubmitting(true);
 
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('未找到登录token');
+        message.error('未找到登录token');
         setSubmitting(false);
         return;
       }
       const clientKey = parseJWT(token);
 
+      // 验证至少需要一个密钥字段
+      if (!values.private_key && !values.api_key && !values.api_secret && !values.api_passphrase) {
+        message.error('至少需要提供私钥、api_key、api_secret或api_passphrase中的一个');
+        setSubmitting(false);
+        return;
+      }
+
       // 构建上传数据（清理输入，IP地址不传，由后端自动填写）
       const secretToUpload: StoreSecretRequest = {
-        key_name: sanitizeInput(formData.key_name),
+        key_name: sanitizeInput(values.key_name),
         active: true, // 默认激活
-        server_name: sanitizeInput(formData.key_name), // 服务器名称和密钥名称一致
+        server_name: sanitizeInput(values.key_name), // 服务器名称和密钥名称一致
         ip: '', // IP地址不传，后端根据请求IP自动填写
-        proxy_address: formData.proxy_address || '',
-        wallet_type: formData.wallet_type ? sanitizeInput(formData.wallet_type) : 'key',
-        signature_type: formData.signature_type !== undefined ? formData.signature_type : 2,
+        proxy_address: values.proxy_address || '',
+        wallet_type: values.wallet_type ? sanitizeInput(values.wallet_type) : 'key',
+        signature_type: values.signature_type !== undefined ? values.signature_type : 2,
       };
 
       // 只加密需要后端加密存储的字段：private_key 和 api_secret
-      if (formData.private_key) {
-        secretToUpload.private_key = await encryptSecret(formData.private_key, clientKey);
+      if (values.private_key) {
+        secretToUpload.private_key = await encryptSecret(values.private_key, clientKey);
       }
-      if (formData.api_secret) {
-        secretToUpload.api_secret = await encryptSecret(formData.api_secret, clientKey);
+      if (values.api_secret) {
+        secretToUpload.api_secret = await encryptSecret(values.api_secret, clientKey);
       }
       
       // api_key 和 api_passphrase 后端明文存储，前端直接发送明文
-      if (formData.api_key) {
-        secretToUpload.api_key = formData.api_key;
+      if (values.api_key) {
+        secretToUpload.api_key = values.api_key;
       }
-      if (formData.api_passphrase) {
-        secretToUpload.api_passphrase = formData.api_passphrase;
+      if (values.api_passphrase) {
+        secretToUpload.api_passphrase = values.api_passphrase;
       }
 
       await secretsAPI.storeSecret(secretToUpload);
-      setSuccess('密钥上传成功');
-      setFormData({
-        key_name: '',
-        active: true,
-        server_name: '',
-        ip: '',
-        proxy_address: '',
-        api_key: '',
-        api_secret: '',
-        api_passphrase: '',
-        private_key: '',
-        wallet_type: 'key',
-        signature_type: 2,
-      });
+      message.success('密钥上传成功');
+      form.resetFields();
       await loadSecrets();
     } catch (err: any) {
-      setError(getSafeErrorMessage(err, '上传失败'));
+      message.error(getSafeErrorMessage(err, '上传失败'));
     } finally {
       setSubmitting(false);
     }
@@ -200,7 +161,6 @@ export default function SecretManagement() {
     setSelectedKeyName(keyName);
     setDecryptedData(null);
     setDecrypting(true);
-    setError('');
 
     try {
       // 获取加密的密钥
@@ -209,7 +169,7 @@ export default function SecretManagement() {
       // 从localStorage获取token
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('未找到登录token');
+        message.error('未找到登录token');
         return;
       }
 
@@ -259,431 +219,345 @@ export default function SecretManagement() {
       decrypted.signature_type = secret.signature_type || 1;
 
       setDecryptedData(decrypted);
-      setSuccess('解密成功');
+      message.success('解密成功');
     } catch (err: any) {
-      // 如果是403错误，显示toast提示
+      // 如果是403错误，显示错误提示
       if (err?.response?.status === 403) {
-        showToast('无访问权限', 'error');
-        setError('');
+        message.error('无访问权限');
       } else {
-        setError(getSafeErrorMessage(err, '获取或解密失败'));
+        message.error(getSafeErrorMessage(err, '获取或解密失败'));
       }
     } finally {
       setDecrypting(false);
     }
   };
 
-  // 显示 Toast 提示
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => {
-      setToast(null);
-    }, 3000); // 3秒后自动消失
+  // 复制到剪贴板
+  const handleCopy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    message.success(`已复制${label}到剪贴板`);
   };
 
-  // 登出
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    window.location.reload();
-  };
+  // 表格列定义
+  const columns = [
+    {
+      title: '密钥名称',
+      dataIndex: 'key_name',
+      key: 'key_name',
+    },
+    {
+      title: '服务器名称',
+      dataIndex: 'server_name',
+      key: 'server_name',
+      render: (text: string) => text || '-',
+    },
+    {
+      title: 'IP地址',
+      dataIndex: 'ip',
+      key: 'ip',
+      render: (text: string) => text || '-',
+    },
+    {
+      title: '代理地址',
+      dataIndex: 'proxy_address',
+      key: 'proxy_address',
+      render: (text: string) => text ? (text.length > 20 ? `${text.substring(0, 20)}...` : text) : '-',
+      ellipsis: true,
+    },
+    {
+      title: '钱包类型',
+      dataIndex: 'wallet_type',
+      key: 'wallet_type',
+      render: (text: string) => text || '-',
+    },
+    {
+      title: '激活',
+      dataIndex: 'active',
+      key: 'active',
+      render: (active: boolean) => (
+        <Tag color={active ? 'success' : 'default'}>
+          {active ? '激活' : '未激活'}
+        </Tag>
+      ),
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (date: string) => new Date(date).toLocaleString('zh-CN'),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_: any, record: any) => (
+        <Button
+          type="link"
+          onClick={() => handleGetAndDecrypt(record.key_name)}
+          disabled={decrypting && selectedKeyName === record.key_name}
+          loading={decrypting && selectedKeyName === record.key_name}
+        >
+          {decrypting && selectedKeyName === record.key_name ? '解密中...' : '获取并解密'}
+        </Button>
+      ),
+    },
+  ];
 
   return (
-    <div className="secret-management">
-      <div className="header">
-        <h1>密钥管理</h1>
-        <button onClick={handleLogout} className="btn-secondary">
-          登出
-        </button>
-      </div>
-
-      {/* Toast 提示 */}
-      {toast && (
-        <div className={`toast toast-${toast.type}`}>
-          {toast.message}
-        </div>
-      )}
-
-      {error && <div className="alert alert-error">{error}</div>}
-      {success && <div className="alert alert-success">{success}</div>}
-
-      {/* 单个密钥上传表单 */}
-      <div className="section">
-        <div className="section-header">
-          <h2>添加密钥</h2>
-        </div>
-        <div className="secret-form secret-form-two-columns">
-          <div className="form-columns">
-            {/* 左栏 */}
-            <div className="form-column">
-              <div className="form-row">
-                <div className="form-group">
-                  <label>密钥名称/服务器名称 *</label>
-                  <input
-                    type="text"
-                    value={formData.key_name}
-                    onChange={(e) => handleKeyNameChange(e.target.value)}
+    <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        {/* 添加密钥表单 */}
+        <Card title="添加密钥">
+          <Form
+            form={form}
+            layout="vertical"
+            onFinish={handleSubmitSecret}
+            initialValues={{
+              signature_type: 2,
+              wallet_type: 'key',
+            }}
+          >
+            <Row gutter={24}>
+              {/* 左栏 */}
+              <Col xs={24} lg={12}>
+                <Form.Item
+                  label="密钥名称/服务器名称"
+                  name="key_name"
+                  rules={[
+                    { required: true, message: '请输入密钥名称' },
+                    { validator: (_, value) => {
+                        if (!value) return Promise.resolve();
+                        const validation = validateKeyName(value);
+                        return validation.valid 
+                          ? Promise.resolve() 
+                          : Promise.reject(new Error(validation.error || '密钥名称格式不正确'));
+                      }
+                    }
+                  ]}
+                >
+                  <Input
                     placeholder="例如: server_001"
+                    onChange={handleKeyNameChange}
                   />
-                  <div className="form-hint">密钥名称和服务器名称将保持一致</div>
-                </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>代理地址</label>
-                  <input
-                    type="text"
-                    value={formData.proxy_address}
-                    onChange={(e) => setFormData({ ...formData, proxy_address: e.target.value })}
-                    placeholder="代理地址"
-                  />
-                </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>签名类型 *</label>
-                  <div className="signature-type-buttons">
-                    <label className="signature-type-button">
-                      <input
-                        type="radio"
-                        name="signature_type"
-                        checked={formData.signature_type === 0}
-                        onChange={() => handleSignatureTypeChange(0)}
-                      />
-                      <span>EOA (0)</span>
-                    </label>
-                    <label className="signature-type-button">
-                      <input
-                        type="radio"
-                        name="signature_type"
-                        checked={formData.signature_type === 1}
-                        onChange={() => handleSignatureTypeChange(1)}
-                      />
-                      <span>Email (1)</span>
-                    </label>
-                    <label className="signature-type-button">
-                      <input
-                        type="radio"
-                        name="signature_type"
-                        checked={formData.signature_type === 2}
-                        onChange={() => handleSignatureTypeChange(2)}
-                      />
-                      <span>Key (2)</span>
-                    </label>
-                  </div>
-                  <div className="form-hint">
-                    钱包类型将根据选择的签名类型自动设置
-                  </div>
-                </div>
-              </div>
-            </div>
+                </Form.Item>
+                <Form.Item
+                  label="代理地址"
+                  name="proxy_address"
+                  rules={[
+                    { validator: (_, value) => {
+                        if (!value) return Promise.resolve();
+                        const validation = validateProxyAddress(value);
+                        return validation.valid 
+                          ? Promise.resolve() 
+                          : Promise.reject(new Error(validation.error || '代理地址格式不正确'));
+                      }
+                    }
+                  ]}
+                >
+                  <Input placeholder="代理地址" />
+                </Form.Item>
+                <Form.Item
+                  label="签名类型"
+                  name="signature_type"
+                  rules={[{ required: true, message: '请选择签名类型' }]}
+                >
+                  <Radio.Group onChange={handleSignatureTypeChange} buttonStyle="solid">
+                    <Radio.Button value={0}>EOA</Radio.Button>
+                    <Radio.Button value={1}>Email</Radio.Button>
+                    <Radio.Button value={2}>Key</Radio.Button>
+                  </Radio.Group>
+                </Form.Item>
+                <Form.Item name="wallet_type" hidden>
+                  <Input />
+                </Form.Item>
+                <Form.Item name="server_name" hidden>
+                  <Input />
+                </Form.Item>
+              </Col>
 
-            {/* 右栏 - 密钥相关字段 */}
-            <div className="form-column">
-              <div className="form-row">
-                <div className="form-group">
-                  <label>私钥 *</label>
-                  <div className="password-input-wrapper">
-                    {showPrivateKey ? (
-                      <textarea
-                        value={formData.private_key}
-                        onChange={(e) => setFormData({ ...formData, private_key: e.target.value })}
-                        placeholder="私钥（将自动加密存储）"
-                        rows={5}
-                        style={{ fontFamily: 'monospace' }}
-                      />
-                    ) : (
-                      <input
-                        type="password"
-                        value={formData.private_key}
-                        onChange={(e) => setFormData({ ...formData, private_key: e.target.value })}
-                        placeholder="私钥（将自动加密存储）"
-                        style={{ fontFamily: 'monospace', width: '100%' }}
-                      />
-                    )}
-                    <button
-                      type="button"
-                      className="toggle-password"
-                      onClick={() => setShowPrivateKey(!showPrivateKey)}
-                      title={showPrivateKey ? '隐藏' : '显示'}
-                    >
-                      {showPrivateKey ? '👁️' : '👁️‍🗨️'}
-                    </button>
-                  </div>
-                  <div className="input-warning">⚠️ 请确保周围环境安全后再显示私钥</div>
-                </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>API密钥 (API Key)</label>
-                  <div className="password-input-wrapper">
-                    {showApiKey ? (
-                      <textarea
-                        value={formData.api_key}
-                        onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
-                        placeholder="API密钥（明文存储）"
-                        rows={2}
-                        style={{ fontFamily: 'monospace' }}
-                      />
-                    ) : (
-                      <input
-                        type="password"
-                        value={formData.api_key}
-                        onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
-                        placeholder="API密钥（明文存储）"
-                        style={{ fontFamily: 'monospace', width: '100%' }}
-                      />
-                    )}
-                    <button
-                      type="button"
-                      className="toggle-password"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      title={showApiKey ? '隐藏' : '显示'}
-                    >
-                      {showApiKey ? '👁️' : '👁️‍🗨️'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>API密钥 (API Secret)</label>
-                  <div className="password-input-wrapper">
-                    {showApiSecret ? (
-                      <textarea
-                        value={formData.api_secret}
-                        onChange={(e) => setFormData({ ...formData, api_secret: e.target.value })}
-                        placeholder="API密钥Secret（将自动加密存储）"
-                        rows={2}
-                        style={{ fontFamily: 'monospace' }}
-                      />
-                    ) : (
-                      <input
-                        type="password"
-                        value={formData.api_secret}
-                        onChange={(e) => setFormData({ ...formData, api_secret: e.target.value })}
-                        placeholder="API密钥Secret（将自动加密存储）"
-                        style={{ fontFamily: 'monospace', width: '100%' }}
-                      />
-                    )}
-                    <button
-                      type="button"
-                      className="toggle-password"
-                      onClick={() => setShowApiSecret(!showApiSecret)}
-                      title={showApiSecret ? '隐藏' : '显示'}
-                    >
-                      {showApiSecret ? '👁️' : '👁️‍🗨️'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>API密码短语(api_passphrase)</label>
-                  <div className="password-input-wrapper">
-                    <input
-                      type={showApiPassphrase ? 'text' : 'password'}
-                      value={formData.api_passphrase}
-                      onChange={(e) => setFormData({ ...formData, api_passphrase: e.target.value })}
-                      placeholder="API密码短语(api_passphrase)（明文存储）"
-                    />
-                    <button
-                      type="button"
-                      className="toggle-password"
-                      onClick={() => setShowApiPassphrase(!showApiPassphrase)}
-                      title={showApiPassphrase ? '隐藏' : '显示'}
-                    >
-                      {showApiPassphrase ? '👁️' : '👁️‍🗨️'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          {/* 提交按钮 */}
-          <div className="form-submit-row">
-            <button
-              onClick={handleSubmitSecret}
-              disabled={submitting || !formData.key_name}
-              className="btn-primary"
+              {/* 右栏 - 密钥相关字段 */}
+              <Col xs={24} lg={12}>
+                <Form.Item
+                  label="私钥"
+                  name="private_key"
+                  tooltip="将自动加密存储"
+                >
+                  <Input.Password
+                    placeholder="secret"
+                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                </Form.Item>
+                <Alert
+                  message="⚠️ 请确保周围环境安全后再显示私钥"
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
+                <Form.Item
+                  label="API密钥 (API Key)"
+                  name="api_key"
+                  tooltip="明文存储"
+                >
+                  <Input.Password
+                    placeholder="api_key"
+                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="API密钥 (API Secret)"
+                  name="api_secret"
+                  tooltip="将自动加密存储"
+                >
+                  <Input.Password
+                    placeholder="api_secret"
+                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="API密码短语(api_passphrase)"
+                  name="api_passphrase"
+                  tooltip="明文存储"
+                >
+                  <Input.Password
+                    placeholder="api_passphrase"
+                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Divider />
+
+            <Form.Item>
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={submitting}
+                block
+              >
+                提交
+              </Button>
+            </Form.Item>
+          </Form>
+        </Card>
+
+        {/* 密钥列表 */}
+        <Card
+          title="我的密钥列表"
+          extra={
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={loadSecrets}
+              loading={loading}
             >
-              {submitting ? '提交中...' : '提交'}
-            </button>
-          </div>
-        </div>
-      </div>
+              刷新
+            </Button>
+          }
+        >
+          <Table
+            columns={columns}
+            dataSource={secrets}
+            rowKey="id"
+            loading={loading}
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: true,
+              showTotal: (total) => `共 ${total} 条`,
+            }}
+          />
+        </Card>
 
-      {/* 密钥列表 */}
-      <div className="section">
-        <div className="section-header">
-          <h2>我的密钥列表</h2>
-          <button onClick={loadSecrets} disabled={loading} className="btn-secondary">
-            {loading ? '刷新中...' : '刷新'}
-          </button>
-        </div>
-        {loading ? (
-          <div className="loading">加载中...</div>
-        ) : !secrets || secrets.length === 0 ? (
-          <div className="empty-state">暂无密钥</div>
-        ) : (
-          <div className="secrets-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>密钥名称</th>
-                  <th>服务器名称</th>
-                  <th>IP地址</th>
-                  <th>代理地址</th>
-                  <th>钱包类型</th>
-                  <th>激活</th>
-                  <th>创建时间</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {secrets.map((secret) => (
-                  <tr key={secret.id}>
-                    <td>{secret.key_name}</td>
-                    <td>{secret.server_name || '-'}</td>
-                    <td>{secret.ip || '-'}</td>
-                    <td className="text-truncate" title={secret.proxy_address || ''}>
-                      {secret.proxy_address ? `${secret.proxy_address.substring(0, 20)}...` : '-'}
-                    </td>
-                    <td>{secret.wallet_type || '-'}</td>
-                    <td>
-                      <span className={`status-badge ${secret.active ? 'status-active' : 'status-inactive'}`}>
-                        {secret.active ? '激活' : '未激活'}
-                      </span>
-                    </td>
-                    <td>{new Date(secret.created_at).toLocaleString('zh-CN')}</td>
-                    <td>
-                      <button
-                        onClick={() => handleGetAndDecrypt(secret.key_name)}
-                        disabled={decrypting && selectedKeyName === secret.key_name}
-                        className="btn-small"
-                      >
-                        {decrypting && selectedKeyName === secret.key_name
-                          ? '解密中...'
-                          : '获取并解密'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* 解密结果显示 */}
-      {decryptedData && (
-        <div className="section">
-          <h2>解密结果 - {selectedKeyName}</h2>
-          <div className="decrypted-data">
-            <div className="data-grid">
+        {/* 解密结果显示 */}
+        {decryptedData && (
+          <Card title={`解密结果 - ${selectedKeyName}`}>
+            <Descriptions column={2} bordered>
               {decryptedData.server_name && (
-                <div className="data-item">
-                  <label>服务器名称:</label>
-                  <code>{decryptedData.server_name}</code>
-                </div>
+                <Descriptions.Item label="服务器名称">
+                  <Text code>{decryptedData.server_name}</Text>
+                </Descriptions.Item>
               )}
               {decryptedData.ip && (
-                <div className="data-item">
-                  <label>IP地址:</label>
-                  <code>{decryptedData.ip}</code>
-                </div>
+                <Descriptions.Item label="IP地址">
+                  <Text code>{decryptedData.ip}</Text>
+                </Descriptions.Item>
               )}
               {decryptedData.proxy_address && (
-                <div className="data-item">
-                  <label>代理地址:</label>
-                  <code>{decryptedData.proxy_address}</code>
-                </div>
+                <Descriptions.Item label="代理地址">
+                  <Text code>{decryptedData.proxy_address}</Text>
+                </Descriptions.Item>
               )}
               {decryptedData.wallet_type && (
-                <div className="data-item">
-                  <label>钱包类型:</label>
-                  <code>{decryptedData.wallet_type}</code>
-                </div>
+                <Descriptions.Item label="钱包类型">
+                  <Text code>{decryptedData.wallet_type}</Text>
+                </Descriptions.Item>
               )}
               {decryptedData.signature_type !== undefined && (
-                <div className="data-item">
-                  <label>签名类型:</label>
-                  <code>{decryptedData.signature_type}</code>
-                </div>
+                <Descriptions.Item label="签名类型">
+                  <Text code>{decryptedData.signature_type}</Text>
+                </Descriptions.Item>
               )}
               {decryptedData.private_key && (
-                <div className="data-item full-width">
-                  <label>私钥:</label>
-                  <div className="secret-value">
-                    <code>{decryptedData.private_key}</code>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(decryptedData.private_key!);
-                        setSuccess('已复制私钥到剪贴板');
-                      }}
-                      className="btn-small"
-                    >
-                      复制
-                    </button>
-                  </div>
-                </div>
+                <Descriptions.Item label="私钥" span={2}>
+                  <Space>
+                    <Text code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                      {decryptedData.private_key}
+                    </Text>
+                    <Button
+                      type="text"
+                      icon={<CopyOutlined />}
+                      onClick={() => handleCopy(decryptedData.private_key!, '私钥')}
+                    />
+                  </Space>
+                </Descriptions.Item>
               )}
               {decryptedData.api_key && (
-                <div className="data-item full-width">
-                  <label>API密钥 (API Key):</label>
-                  <div className="secret-value">
-                    <code>{decryptedData.api_key}</code>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(decryptedData.api_key!);
-                        setSuccess('已复制API密钥到剪贴板');
-                      }}
-                      className="btn-small"
-                    >
-                      复制
-                    </button>
-                  </div>
-                </div>
+                <Descriptions.Item label="API密钥 (API Key)" span={2}>
+                  <Space>
+                    <Text code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                      {decryptedData.api_key}
+                    </Text>
+                    <Button
+                      type="text"
+                      icon={<CopyOutlined />}
+                      onClick={() => handleCopy(decryptedData.api_key!, 'API密钥')}
+                    />
+                  </Space>
+                </Descriptions.Item>
               )}
               {decryptedData.api_secret && (
-                <div className="data-item full-width">
-                  <label>API密钥 (API Secret):</label>
-                  <div className="secret-value">
-                    <code>{decryptedData.api_secret}</code>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(decryptedData.api_secret!);
-                        setSuccess('已复制API密钥Secret到剪贴板');
-                      }}
-                      className="btn-small"
-                    >
-                      复制
-                    </button>
-                  </div>
-                </div>
+                <Descriptions.Item label="API密钥 (API Secret)" span={2}>
+                  <Space>
+                    <Text code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                      {decryptedData.api_secret}
+                    </Text>
+                    <Button
+                      type="text"
+                      icon={<CopyOutlined />}
+                      onClick={() => handleCopy(decryptedData.api_secret!, 'API密钥Secret')}
+                    />
+                  </Space>
+                </Descriptions.Item>
               )}
               {decryptedData.api_passphrase && (
-                <div className="data-item">
-                  <label>API密码短语(api_passphrase):</label>
-                  <div className="secret-value">
-                    <code>{decryptedData.api_passphrase}</code>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(decryptedData.api_passphrase!);
-                        setSuccess('已复制API密码短语(api_passphrase)到剪贴板');
-                      }}
-                      className="btn-small"
-                    >
-                      复制
-                    </button>
-                  </div>
-                </div>
+                <Descriptions.Item label="API密码短语(api_passphrase)" span={2}>
+                  <Space>
+                    <Text code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                      {decryptedData.api_passphrase}
+                    </Text>
+                    <Button
+                      type="text"
+                      icon={<CopyOutlined />}
+                      onClick={() => handleCopy(decryptedData.api_passphrase!, 'API密码短语(api_passphrase)')}
+                    />
+                  </Space>
+                </Descriptions.Item>
               )}
-            </div>
-          </div>
-        </div>
-      )}
+            </Descriptions>
+          </Card>
+        )}
+      </Space>
     </div>
   );
 }
-
