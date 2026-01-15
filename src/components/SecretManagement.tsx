@@ -1,24 +1,24 @@
 import { useState, useEffect } from 'react';
-import { 
-  Card, 
-  Form, 
-  Input, 
-  Button, 
-  Radio, 
-  Space, 
-  Row, 
-  Col, 
-  Table, 
-  Tag, 
-  message, 
-  Typography, 
+import {
+  Card,
+  Form,
+  Input,
+  Button,
+  Radio,
+  Space,
+  Row,
+  Col,
+  Table,
+  Tag,
+  message,
+  Typography,
   Descriptions,
   Alert,
   Divider
 } from 'antd';
-import { 
-  EyeOutlined, 
-  EyeInvisibleOutlined, 
+import {
+  EyeOutlined,
+  EyeInvisibleOutlined,
   ReloadOutlined,
   CopyOutlined
 } from '@ant-design/icons';
@@ -136,7 +136,7 @@ export default function SecretManagement() {
       if (values.api_secret) {
         secretToUpload.api_secret = await encryptSecret(values.api_secret, clientKey);
       }
-      
+
       // api_key 和 api_passphrase 后端明文存储，前端直接发送明文
       if (values.api_key) {
         secretToUpload.api_key = values.api_key;
@@ -165,7 +165,7 @@ export default function SecretManagement() {
     try {
       // 获取加密的密钥
       const secret: Secret = await secretsAPI.getSecret(keyName);
-      
+
       // 从localStorage获取token
       const token = localStorage.getItem('token');
       if (!token) {
@@ -185,7 +185,7 @@ export default function SecretManagement() {
       if (secret.api_secret) {
         decrypted.api_secret = await decryptSecret(secret.api_secret, clientKey);
       }
-      
+
       // api_key 和 api_passphrase 在后端是明文存储的，后端返回时已经是明文，直接使用
       if (secret.api_key) {
         decrypted.api_key = secret.api_key;
@@ -324,11 +324,12 @@ export default function SecretManagement() {
                   name="key_name"
                   rules={[
                     { required: true, message: '请输入密钥名称' },
-                    { validator: (_, value) => {
+                    {
+                      validator: (_, value) => {
                         if (!value) return Promise.resolve();
                         const validation = validateKeyName(value);
-                        return validation.valid 
-                          ? Promise.resolve() 
+                        return validation.valid
+                          ? Promise.resolve()
                           : Promise.reject(new Error(validation.error || '密钥名称格式不正确'));
                       }
                     }
@@ -343,11 +344,12 @@ export default function SecretManagement() {
                   label="代理地址"
                   name="proxy_address"
                   rules={[
-                    { validator: (_, value) => {
+                    {
+                      validator: (_, value) => {
                         if (!value) return Promise.resolve();
                         const validation = validateProxyAddress(value);
-                        return validation.valid 
-                          ? Promise.resolve() 
+                        return validation.valid
+                          ? Promise.resolve()
                           : Promise.reject(new Error(validation.error || '代理地址格式不正确'));
                       }
                     }
