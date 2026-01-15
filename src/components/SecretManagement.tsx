@@ -23,11 +23,10 @@ export default function SecretManagement() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // 单个密钥上传表单状态
-  const [showAddForm, setShowAddForm] = useState(false);
+  // 单个密钥上传表单状态（不再需要展开/收起状态）
   const [formData, setFormData] = useState<StoreSecretRequest>({
     key_name: '',
-    active: true,
+    active: true, // 默认激活，不显示复选框
     server_name: '',
     ip: '',
     proxy_address: '',
@@ -35,13 +34,10 @@ export default function SecretManagement() {
     api_secret: '',
     api_passphrase: '',
     private_key: '',
-    wallet_type: '',
-    signature_type: 0,
+    wallet_type: 'key', // 默认钱包类型为key
+    signature_type: 2, // 默认签名类型为key (2)
   });
   const [submitting, setSubmitting] = useState(false);
-  
-  // 签名类型多选状态（0=EOA, 1=email, 2=key）
-  const [selectedSignatureTypes, setSelectedSignatureTypes] = useState<number[]>([]);
 
   // 查询和解密相关状态
   const [selectedKeyName, setSelectedKeyName] = useState('');
@@ -88,32 +84,22 @@ export default function SecretManagement() {
     return typeMap[signatureType] || '';
   };
 
-  // 处理签名类型选择变化
-  const handleSignatureTypeChange = (signatureType: number, checked: boolean) => {
-    let newSelectedTypes: number[];
-    if (checked) {
-      newSelectedTypes = [...selectedSignatureTypes, signatureType];
-    } else {
-      newSelectedTypes = selectedSignatureTypes.filter(t => t !== signatureType);
-    }
-    setSelectedSignatureTypes(newSelectedTypes);
-    
-    // 如果选择了类型，使用最新选择的类型（如果取消选择，使用剩余的第一个）
-    if (newSelectedTypes.length > 0) {
-      // 如果刚选择了一个类型，使用它；否则使用第一个
-      const typeToUse = checked ? signatureType : newSelectedTypes[0];
-      setFormData({
-        ...formData,
-        signature_type: typeToUse,
-        wallet_type: getWalletTypeFromSignatureType(typeToUse),
-      });
-    } else {
-      setFormData({
-        ...formData,
-        signature_type: 0,
-        wallet_type: '',
-      });
-    }
+  // 处理签名类型选择变化（单选）
+  const handleSignatureTypeChange = (signatureType: number) => {
+    setFormData({
+      ...formData,
+      signature_type: signatureType,
+      wallet_type: getWalletTypeFromSignatureType(signatureType),
+    });
+  };
+  
+  // 处理密钥名称变化，同时更新服务器名称
+  const handleKeyNameChange = (keyName: string) => {
+    setFormData({
+      ...formData,
+      key_name: keyName,
+      server_name: keyName, // 密钥名称和服务器名称保持一致
+    });
   };
 
   // 单个密钥上传
@@ -134,8 +120,8 @@ export default function SecretManagement() {
     }
 
     // 验证签名类型
-    if (selectedSignatureTypes.length === 0) {
-      setError('请至少选择一个签名类型');
+    if (formData.signature_type === undefined || formData.signature_type === null) {
+      setError('请选择签名类型');
       return;
     }
 
@@ -162,12 +148,12 @@ export default function SecretManagement() {
       // 构建上传数据（清理输入，IP地址不传，由后端自动填写）
       const secretToUpload: StoreSecretRequest = {
         key_name: sanitizeInput(formData.key_name),
-        active: formData.active !== undefined ? formData.active : true,
-        server_name: formData.server_name ? sanitizeInput(formData.server_name) : '',
+        active: true, // 默认激活
+        server_name: sanitizeInput(formData.key_name), // 服务器名称和密钥名称一致
         ip: '', // IP地址不传，后端根据请求IP自动填写
         proxy_address: formData.proxy_address || '',
-        wallet_type: formData.wallet_type ? sanitizeInput(formData.wallet_type) : '',
-        signature_type: formData.signature_type || 0,
+        wallet_type: formData.wallet_type ? sanitizeInput(formData.wallet_type) : 'key',
+        signature_type: formData.signature_type !== undefined ? formData.signature_type : 2,
       };
 
       // 只加密需要后端加密存储的字段：private_key 和 api_secret
@@ -198,11 +184,9 @@ export default function SecretManagement() {
         api_secret: '',
         api_passphrase: '',
         private_key: '',
-        wallet_type: '',
-        signature_type: 0,
+        wallet_type: 'key',
+        signature_type: 2,
       });
-      setSelectedSignatureTypes([]);
-      setShowAddForm(false);
       await loadSecrets();
     } catch (err: any) {
       setError(getSafeErrorMessage(err, '上传失败'));
@@ -326,193 +310,198 @@ export default function SecretManagement() {
       <div className="section">
         <div className="section-header">
           <h2>添加密钥</h2>
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="btn-secondary"
-          >
-            {showAddForm ? '收起' : '展开表单'}
-          </button>
         </div>
-        {showAddForm && (
-          <div className="secret-form">
-            <div className="form-row">
-              <div className="form-group">
-                <label>密钥名称 *</label>
-                <input
-                  type="text"
-                  value={formData.key_name}
-                  onChange={(e) => setFormData({ ...formData, key_name: e.target.value })}
-                  placeholder="例如: server_001"
-                />
-              </div>
-              <div className="form-group">
-                <label>是否激活</label>
-                <input
-                  type="checkbox"
-                  checked={formData.active}
-                  onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
-                />
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>服务器名称</label>
-                <input
-                  type="text"
-                  value={formData.server_name}
-                  onChange={(e) => setFormData({ ...formData, server_name: e.target.value })}
-                  placeholder="例如: server_001"
-                />
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>代理地址</label>
-                <input
-                  type="text"
-                  value={formData.proxy_address}
-                  onChange={(e) => setFormData({ ...formData, proxy_address: e.target.value })}
-                  placeholder="代理地址"
-                />
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>签名类型 *</label>
-                <div className="signature-type-buttons">
-                  <label className="signature-type-button">
-                    <input
-                      type="checkbox"
-                      checked={selectedSignatureTypes.includes(0)}
-                      onChange={(e) => handleSignatureTypeChange(0, e.target.checked)}
-                    />
-                    <span>EOA (0)</span>
-                  </label>
-                  <label className="signature-type-button">
-                    <input
-                      type="checkbox"
-                      checked={selectedSignatureTypes.includes(1)}
-                      onChange={(e) => handleSignatureTypeChange(1, e.target.checked)}
-                    />
-                    <span>Email (1)</span>
-                  </label>
-                  <label className="signature-type-button">
-                    <input
-                      type="checkbox"
-                      checked={selectedSignatureTypes.includes(2)}
-                      onChange={(e) => handleSignatureTypeChange(2, e.target.checked)}
-                    />
-                    <span>Key (2)</span>
-                  </label>
-                </div>
-                <div className="form-hint">
-                  钱包类型将根据选择的签名类型自动设置
-                </div>
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>私钥 *</label>
-                <div className="password-input-wrapper">
-                  <textarea
-                    value={showPrivateKey ? formData.private_key : (formData.private_key ? '•'.repeat(Math.min(formData.private_key.length, 50)) : '')}
-                    onChange={(e) => {
-                      if (showPrivateKey) {
-                        setFormData({ ...formData, private_key: e.target.value });
-                      }
-                    }}
-                    placeholder="私钥（将自动加密存储）"
-                    rows={2}
-                    style={{ fontFamily: 'monospace' }}
-                    className={showPrivateKey ? '' : 'password-masked'}
-                  />
-                  <button
-                    type="button"
-                    className="toggle-password"
-                    onClick={() => setShowPrivateKey(!showPrivateKey)}
-                    title={showPrivateKey ? '隐藏' : '显示'}
-                  >
-                    {showPrivateKey ? '👁️' : '👁️‍🗨️'}
-                  </button>
-                </div>
-                <div className="input-warning">⚠️ 请确保周围环境安全后再显示私钥</div>
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>API密钥 (API Key)</label>
-                <div className="password-input-wrapper">
-                  <textarea
-                    value={showApiKey ? formData.api_key : (formData.api_key ? '•'.repeat(Math.min(formData.api_key.length, 50)) : '')}
-                    onChange={(e) => {
-                      if (showApiKey) {
-                        setFormData({ ...formData, api_key: e.target.value });
-                      }
-                    }}
-                    placeholder="API密钥（明文存储）"
-                    rows={2}
-                    style={{ fontFamily: 'monospace' }}
-                    className={showApiKey ? '' : 'password-masked'}
-                  />
-                  <button
-                    type="button"
-                    className="toggle-password"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                    title={showApiKey ? '隐藏' : '显示'}
-                  >
-                    {showApiKey ? '👁️' : '👁️‍🗨️'}
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>API密钥 (API Secret)</label>
-                <div className="password-input-wrapper">
-                  <textarea
-                    value={showApiSecret ? formData.api_secret : (formData.api_secret ? '•'.repeat(Math.min(formData.api_secret.length, 50)) : '')}
-                    onChange={(e) => {
-                      if (showApiSecret) {
-                        setFormData({ ...formData, api_secret: e.target.value });
-                      }
-                    }}
-                    placeholder="API密钥Secret（将自动加密存储）"
-                    rows={2}
-                    style={{ fontFamily: 'monospace' }}
-                    className={showApiSecret ? '' : 'password-masked'}
-                  />
-                  <button
-                    type="button"
-                    className="toggle-password"
-                    onClick={() => setShowApiSecret(!showApiSecret)}
-                    title={showApiSecret ? '隐藏' : '显示'}
-                  >
-                    {showApiSecret ? '👁️' : '👁️‍🗨️'}
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>API密码短语</label>
-                <div className="password-input-wrapper">
+        <div className="secret-form secret-form-two-columns">
+          <div className="form-columns">
+            {/* 左栏 */}
+            <div className="form-column">
+              <div className="form-row">
+                <div className="form-group">
+                  <label>密钥名称/服务器名称 *</label>
                   <input
-                    type={showApiPassphrase ? 'text' : 'password'}
-                    value={formData.api_passphrase}
-                    onChange={(e) => setFormData({ ...formData, api_passphrase: e.target.value })}
-                    placeholder="API密码短语（明文存储）"
+                    type="text"
+                    value={formData.key_name}
+                    onChange={(e) => handleKeyNameChange(e.target.value)}
+                    placeholder="例如: server_001"
                   />
-                  <button
-                    type="button"
-                    className="toggle-password"
-                    onClick={() => setShowApiPassphrase(!showApiPassphrase)}
-                    title={showApiPassphrase ? '隐藏' : '显示'}
-                  >
-                    {showApiPassphrase ? '👁️' : '👁️‍🗨️'}
-                  </button>
+                  <div className="form-hint">密钥名称和服务器名称将保持一致</div>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>代理地址</label>
+                  <input
+                    type="text"
+                    value={formData.proxy_address}
+                    onChange={(e) => setFormData({ ...formData, proxy_address: e.target.value })}
+                    placeholder="代理地址"
+                  />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>签名类型 *</label>
+                  <div className="signature-type-buttons">
+                    <label className="signature-type-button">
+                      <input
+                        type="radio"
+                        name="signature_type"
+                        checked={formData.signature_type === 0}
+                        onChange={() => handleSignatureTypeChange(0)}
+                      />
+                      <span>EOA (0)</span>
+                    </label>
+                    <label className="signature-type-button">
+                      <input
+                        type="radio"
+                        name="signature_type"
+                        checked={formData.signature_type === 1}
+                        onChange={() => handleSignatureTypeChange(1)}
+                      />
+                      <span>Email (1)</span>
+                    </label>
+                    <label className="signature-type-button">
+                      <input
+                        type="radio"
+                        name="signature_type"
+                        checked={formData.signature_type === 2}
+                        onChange={() => handleSignatureTypeChange(2)}
+                      />
+                      <span>Key (2)</span>
+                    </label>
+                  </div>
+                  <div className="form-hint">
+                    钱包类型将根据选择的签名类型自动设置
+                  </div>
                 </div>
               </div>
             </div>
+
+            {/* 右栏 - 密钥相关字段 */}
+            <div className="form-column">
+              <div className="form-row">
+                <div className="form-group">
+                  <label>私钥 *</label>
+                  <div className="password-input-wrapper">
+                    {showPrivateKey ? (
+                      <textarea
+                        value={formData.private_key}
+                        onChange={(e) => setFormData({ ...formData, private_key: e.target.value })}
+                        placeholder="私钥（将自动加密存储）"
+                        rows={5}
+                        style={{ fontFamily: 'monospace' }}
+                      />
+                    ) : (
+                      <input
+                        type="password"
+                        value={formData.private_key}
+                        onChange={(e) => setFormData({ ...formData, private_key: e.target.value })}
+                        placeholder="私钥（将自动加密存储）"
+                        style={{ fontFamily: 'monospace', width: '100%' }}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      className="toggle-password"
+                      onClick={() => setShowPrivateKey(!showPrivateKey)}
+                      title={showPrivateKey ? '隐藏' : '显示'}
+                    >
+                      {showPrivateKey ? '👁️' : '👁️‍🗨️'}
+                    </button>
+                  </div>
+                  <div className="input-warning">⚠️ 请确保周围环境安全后再显示私钥</div>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>API密钥 (API Key)</label>
+                  <div className="password-input-wrapper">
+                    {showApiKey ? (
+                      <textarea
+                        value={formData.api_key}
+                        onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
+                        placeholder="API密钥（明文存储）"
+                        rows={2}
+                        style={{ fontFamily: 'monospace' }}
+                      />
+                    ) : (
+                      <input
+                        type="password"
+                        value={formData.api_key}
+                        onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
+                        placeholder="API密钥（明文存储）"
+                        style={{ fontFamily: 'monospace', width: '100%' }}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      className="toggle-password"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      title={showApiKey ? '隐藏' : '显示'}
+                    >
+                      {showApiKey ? '👁️' : '👁️‍🗨️'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>API密钥 (API Secret)</label>
+                  <div className="password-input-wrapper">
+                    {showApiSecret ? (
+                      <textarea
+                        value={formData.api_secret}
+                        onChange={(e) => setFormData({ ...formData, api_secret: e.target.value })}
+                        placeholder="API密钥Secret（将自动加密存储）"
+                        rows={2}
+                        style={{ fontFamily: 'monospace' }}
+                      />
+                    ) : (
+                      <input
+                        type="password"
+                        value={formData.api_secret}
+                        onChange={(e) => setFormData({ ...formData, api_secret: e.target.value })}
+                        placeholder="API密钥Secret（将自动加密存储）"
+                        style={{ fontFamily: 'monospace', width: '100%' }}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      className="toggle-password"
+                      onClick={() => setShowApiSecret(!showApiSecret)}
+                      title={showApiSecret ? '隐藏' : '显示'}
+                    >
+                      {showApiSecret ? '👁️' : '👁️‍🗨️'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>API密码短语(api_passphrase)</label>
+                  <div className="password-input-wrapper">
+                    <input
+                      type={showApiPassphrase ? 'text' : 'password'}
+                      value={formData.api_passphrase}
+                      onChange={(e) => setFormData({ ...formData, api_passphrase: e.target.value })}
+                      placeholder="API密码短语(api_passphrase)（明文存储）"
+                    />
+                    <button
+                      type="button"
+                      className="toggle-password"
+                      onClick={() => setShowApiPassphrase(!showApiPassphrase)}
+                      title={showApiPassphrase ? '隐藏' : '显示'}
+                    >
+                      {showApiPassphrase ? '👁️' : '👁️‍🗨️'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* 提交按钮 */}
+          <div className="form-submit-row">
             <button
               onClick={handleSubmitSecret}
               disabled={submitting || !formData.key_name}
@@ -521,7 +510,7 @@ export default function SecretManagement() {
               {submitting ? '提交中...' : '提交'}
             </button>
           </div>
-        )}
+        </div>
       </div>
 
       {/* 密钥列表 */}
@@ -675,13 +664,13 @@ export default function SecretManagement() {
               )}
               {decryptedData.api_passphrase && (
                 <div className="data-item">
-                  <label>API密码短语:</label>
+                  <label>API密码短语(api_passphrase):</label>
                   <div className="secret-value">
                     <code>{decryptedData.api_passphrase}</code>
                     <button
                       onClick={() => {
                         navigator.clipboard.writeText(decryptedData.api_passphrase!);
-                        setSuccess('已复制API密码短语到剪贴板');
+                        setSuccess('已复制API密码短语(api_passphrase)到剪贴板');
                       }}
                       className="btn-small"
                     >
