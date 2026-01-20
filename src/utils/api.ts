@@ -222,6 +222,7 @@ export interface WorkerStatus {
   info_data?: string; // JSON字符串格式的静态信息（/info 接口返回）
   checked_at: string;
   created_at: string;
+  updated_at: string; // 更新时间，用于判断是否在线
 }
 
 export interface WorkerStatusListResponse {

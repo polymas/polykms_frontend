@@ -141,9 +141,13 @@ export default function WorkerStatus() {
           if (!existing) {
             statusMap.set(status.ip, status);
           } else {
-            // 比较检查时间，保留最新的状态
-            const existingTime = existing.checked_at ? new Date(existing.checked_at).getTime() : 0;
-            const currentTime = status.checked_at ? new Date(status.checked_at).getTime() : 0;
+            // 比较更新时间，优先使用updated_at，如果没有则使用checked_at
+            const existingTime = existing.updated_at 
+              ? new Date(existing.updated_at).getTime() 
+              : (existing.checked_at ? new Date(existing.checked_at).getTime() : 0);
+            const currentTime = status.updated_at 
+              ? new Date(status.updated_at).getTime() 
+              : (status.checked_at ? new Date(status.checked_at).getTime() : 0);
             if (currentTime > existingTime) {
               statusMap.set(status.ip, status);
             }
@@ -535,20 +539,42 @@ export default function WorkerStatus() {
     return () => clearInterval(interval);
   }, [autoRefresh, refreshInterval, hideOffline]);
 
+  // 根据updated_at判断是否在线（一分钟内算在线）
+  const isWorkerOnline = (workerStatus: WorkerStatusType): boolean => {
+    if (!workerStatus.updated_at && !workerStatus.checked_at) {
+      return false;
+    }
+    
+    // 优先使用updated_at，如果没有则使用checked_at
+    const timeStr = workerStatus.updated_at || workerStatus.checked_at;
+    if (!timeStr) {
+      return false;
+    }
+    
+    try {
+      const updateTime = new Date(timeStr).getTime();
+      const now = Date.now();
+      const diffMs = now - updateTime;
+      // 一分钟 = 60 * 1000 毫秒
+      return diffMs <= 60 * 1000;
+    } catch {
+      return false;
+    }
+  };
+
   // 格式化状态显示
-  // error 状态统一显示为 offline（离线）
-  const getStatusBadge = (status: string) => {
-    // 将 error 状态统一显示为 offline
-    const displayStatus = status === 'error' ? 'offline' : status;
-
-    const statusMap: Record<string, { label: string; className: string }> = {
-      online: { label: '在线', className: 'status-online' },
-      offline: { label: '离线', className: 'status-offline' },
-      error: { label: '离线', className: 'status-offline' }, // error 统一显示为离线
-    };
-
-    const statusInfo = statusMap[displayStatus] || { label: displayStatus, className: 'status-unknown' };
-    return <span className={`status-badge ${statusInfo.className}`}>{statusInfo.label}</span>;
+  // 根据updated_at判断是否在线，如果一分钟内更新过就算在线
+  const getStatusBadge = (workerStatus: WorkerStatusType) => {
+    // 根据updated_at判断是否在线
+    const isOnline = isWorkerOnline(workerStatus);
+    
+    // 如果一分钟内更新过，显示为在线
+    if (isOnline) {
+      return <span className="status-badge status-online">在线</span>;
+    }
+    
+    // 否则显示为离线
+    return <span className="status-badge status-offline">离线</span>;
   };
 
   // 格式化时间
@@ -1347,7 +1373,7 @@ export default function WorkerStatus() {
                                 })()}
                               </td>
                             )}
-                            {selectedFields.includes('status') && <td>{getStatusBadge(status.status)}</td>}
+                            {selectedFields.includes('status') && <td>{getStatusBadge(status)}</td>}
                             {selectedFields.includes('response_time') && (
                               <td>{status.response_time || '-'}</td>
                             )}
