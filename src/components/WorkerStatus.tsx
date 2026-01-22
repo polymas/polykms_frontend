@@ -13,11 +13,17 @@ export default function WorkerStatus() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [selectedFields, setSelectedFields] = useState<string[]>([
-    'server_name',
     'ip',
+    'server_name',
     'proxy_address',
-    'wallet_type',
-    'created_at',
+    'status',
+    'response_time',
+    'checked_at',
+    'position_count',
+    'order_count',
+    'balance',
+    'total_assets',
+    'version_number',
   ]);
   // 自动刷新功能（UI已隐藏，但功能仍在使用）
   const [autoRefresh] = useState(true);
@@ -58,11 +64,21 @@ export default function WorkerStatus() {
 
   // 可选的字段列表
   const availableFields = [
-    { key: 'server_name', label: '服务器名称' },
     { key: 'ip', label: 'IP地址' },
+    { key: 'server_name', label: '服务器名称' },
     { key: 'proxy_address', label: '代理地址' },
     { key: 'wallet_type', label: '钱包类型' },
+    { key: 'status', label: '状态' },
+    { key: 'response_time', label: '响应时间(ms)' },
+    { key: 'status_code', label: 'HTTP状态码' },
+    { key: 'error_msg', label: '错误信息' },
+    { key: 'checked_at', label: '检查时间' },
     { key: 'created_at', label: '创建时间' },
+    { key: 'position_count', label: '持仓数' },
+    { key: 'order_count', label: '挂单数' },
+    { key: 'balance', label: 'USDC余额' },
+    { key: 'total_assets', label: '资产总额' },
+    { key: 'version_number', label: '程序版本号' },
   ];
 
   // 从状态数据中解析 info_data
@@ -128,11 +144,11 @@ export default function WorkerStatus() {
             statusMap.set(status.ip, status);
           } else {
             // 比较更新时间，优先使用updated_at，如果没有则使用checked_at
-            const existingTime = existing.updated_at 
-              ? new Date(existing.updated_at).getTime() 
+            const existingTime = existing.updated_at
+              ? new Date(existing.updated_at).getTime()
               : (existing.checked_at ? new Date(existing.checked_at).getTime() : 0);
-            const currentTime = status.updated_at 
-              ? new Date(status.updated_at).getTime() 
+            const currentTime = status.updated_at
+              ? new Date(status.updated_at).getTime()
               : (status.checked_at ? new Date(status.checked_at).getTime() : 0);
             if (currentTime > existingTime) {
               statusMap.set(status.ip, status);
@@ -1325,8 +1341,8 @@ export default function WorkerStatus() {
                       return (
                         <React.Fragment key={status.ip || status.id}>
                           <tr>
-                            {selectedFields.includes('server_name') && <td>{status.server_name || '-'}</td>}
                             {selectedFields.includes('ip') && <td>{status.ip}</td>}
+                            {selectedFields.includes('server_name') && <td>{status.server_name || '-'}</td>}
                             {selectedFields.includes('proxy_address') && (
                               <td>
                                 {status.proxy_address ? (
@@ -1371,8 +1387,63 @@ export default function WorkerStatus() {
                             {selectedFields.includes('wallet_type') && (
                               <td>{status.wallet_type || '-'}</td>
                             )}
+                            {selectedFields.includes('status') && (
+                              <td>
+                                <span className={`status-badge status-${status.status}`}>
+                                  {status.status === 'online' ? '在线' : status.status === 'offline' ? '离线' : '错误'}
+                                </span>
+                              </td>
+                            )}
+                            {selectedFields.includes('response_time') && (
+                              <td>{status.response_time !== undefined ? `${status.response_time}ms` : '-'}</td>
+                            )}
+                            {selectedFields.includes('status_code') && (
+                              <td>{status.status_code !== undefined ? status.status_code : '-'}</td>
+                            )}
+                            {selectedFields.includes('error_msg') && (
+                              <td>
+                                {status.error_msg ? (
+                                  <Tooltip title={status.error_msg}>
+                                    <span style={{ color: '#ff4d4f', maxWidth: '200px', display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {status.error_msg}
+                                    </span>
+                                  </Tooltip>
+                                ) : (
+                                  '-'
+                                )}
+                              </td>
+                            )}
+                            {selectedFields.includes('checked_at') && (
+                              <td>{status.checked_at ? formatTime(status.checked_at) : '-'}</td>
+                            )}
                             {selectedFields.includes('created_at') && (
                               <td>{formatTime(status.created_at)}</td>
+                            )}
+                            {selectedFields.includes('position_count') && (
+                              <td className="key-metric-cell">
+                                {getKeyMetricValue(mergedData, 'position_count')}
+                              </td>
+                            )}
+                            {selectedFields.includes('order_count') && (
+                              <td className="key-metric-cell">
+                                {getKeyMetricValue(mergedData, 'order_count')}
+                              </td>
+                            )}
+                            {selectedFields.includes('balance') && (
+                              <td className="key-metric-cell">
+                                {getKeyMetricValue(mergedData, 'balance')}
+                              </td>
+                            )}
+                            {selectedFields.includes('total_assets') && (
+                              <td className="key-metric-cell">
+                                {getKeyMetricValue(mergedData, 'total_assets')}
+                              </td>
+                            )}
+                            {selectedFields.includes('version_number') && (
+                              <td className="key-metric-cell">
+                                {/* version_number 只从 info_data（info接口）中获取，不从 status 接口获取 */}
+                                {getKeyMetricValue(staticInfo, 'version_number')}
+                              </td>
                             )}
                             <td>
                               <Space size="small" wrap>
