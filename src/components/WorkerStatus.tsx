@@ -525,44 +525,6 @@ export default function WorkerStatus() {
     return () => clearInterval(interval);
   }, [autoRefresh, refreshInterval, hideOffline]);
 
-  // 根据updated_at判断是否在线（一分钟内算在线）
-  const isWorkerOnline = (workerStatus: WorkerStatusType): boolean => {
-    if (!workerStatus.updated_at && !workerStatus.checked_at) {
-      return false;
-    }
-    
-    // 优先使用updated_at，如果没有则使用checked_at
-    const timeStr = workerStatus.updated_at || workerStatus.checked_at;
-    if (!timeStr) {
-      return false;
-    }
-    
-    try {
-      const updateTime = new Date(timeStr).getTime();
-      const now = Date.now();
-      const diffMs = now - updateTime;
-      // 一分钟 = 60 * 1000 毫秒
-      return diffMs <= 60 * 1000;
-    } catch {
-      return false;
-    }
-  };
-
-  // 格式化状态显示
-  // 根据updated_at判断是否在线，如果一分钟内更新过就算在线
-  const getStatusBadge = (workerStatus: WorkerStatusType) => {
-    // 根据updated_at判断是否在线
-    const isOnline = isWorkerOnline(workerStatus);
-    
-    // 如果一分钟内更新过，显示为在线
-    if (isOnline) {
-      return <span className="status-badge status-online">在线</span>;
-    }
-    
-    // 否则显示为离线
-    return <span className="status-badge status-offline">离线</span>;
-  };
-
   // 格式化时间
   const formatTime = (timeStr: string) => {
     try {
@@ -581,14 +543,6 @@ export default function WorkerStatus() {
     } catch {
       return null;
     }
-  };
-
-  // 格式化代理钱包地址为缩略显示（前6位...后4位）
-  const formatProxyWalletAddress = (address: string): string => {
-    if (!address || address.length <= 10) {
-      return address;
-    }
-    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
   };
 
   // 从业务数据中提取代理钱包地址
