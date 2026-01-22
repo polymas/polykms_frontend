@@ -13,17 +13,11 @@ export default function WorkerStatus() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [selectedFields, setSelectedFields] = useState<string[]>([
-    'ip',
     'server_name',
-    'proxy_wallet',
-    'status',
-    'response_time',
-    'checked_at',
-    'position_count',
-    'order_count',
-    'balance',
-    'total_assets',
-    'version_number',
+    'ip',
+    'proxy_address',
+    'wallet_type',
+    'created_at',
   ]);
   // 自动刷新功能（UI已隐藏，但功能仍在使用）
   const [autoRefresh] = useState(true);
@@ -64,19 +58,11 @@ export default function WorkerStatus() {
 
   // 可选的字段列表
   const availableFields = [
-    { key: 'ip', label: 'IP地址' },
     { key: 'server_name', label: '服务器名称' },
-    { key: 'proxy_wallet', label: '代理钱包' },
-    { key: 'status', label: '状态' },
-    { key: 'response_time', label: '响应时间(ms)' },
-    { key: 'status_code', label: 'HTTP状态码' },
-    { key: 'error_msg', label: '错误信息' },
-    { key: 'checked_at', label: '检查时间' },
-    { key: 'position_count', label: '持仓数' },
-    { key: 'order_count', label: '挂单数' },
-    { key: 'balance', label: 'USDC余额' },
-    { key: 'total_assets', label: '资产总额' },
-    { key: 'version_number', label: '程序版本号' },
+    { key: 'ip', label: 'IP地址' },
+    { key: 'proxy_address', label: '代理地址' },
+    { key: 'wallet_type', label: '钱包类型' },
+    { key: 'created_at', label: '创建时间' },
   ];
 
   // 从状态数据中解析 info_data
@@ -1001,6 +987,8 @@ export default function WorkerStatus() {
           (status.key_name && status.key_name.toLowerCase().includes(keyword)) ||
           (status.ip && status.ip.toLowerCase().includes(keyword)) ||
           (status.server_name && status.server_name.toLowerCase().includes(keyword)) ||
+          (status.proxy_address && status.proxy_address.toLowerCase().includes(keyword)) ||
+          (status.wallet_type && status.wallet_type.toLowerCase().includes(keyword)) ||
           (status.status && status.status.toLowerCase().includes(keyword)) ||
           (status.error_msg && status.error_msg.toLowerCase().includes(keyword)) ||
           (status.response_time && String(status.response_time).includes(keyword)) ||
@@ -1037,6 +1025,18 @@ export default function WorkerStatus() {
         case 'server_name':
           valueA = (a.server_name || '').toLowerCase();
           valueB = (b.server_name || '').toLowerCase();
+          break;
+        case 'proxy_address':
+          valueA = (a.proxy_address || '').toLowerCase();
+          valueB = (b.proxy_address || '').toLowerCase();
+          break;
+        case 'wallet_type':
+          valueA = (a.wallet_type || '').toLowerCase();
+          valueB = (b.wallet_type || '').toLowerCase();
+          break;
+        case 'created_at':
+          valueA = a.created_at ? new Date(a.created_at).getTime() : 0;
+          valueB = b.created_at ? new Date(b.created_at).getTime() : 0;
           break;
         case 'status':
           valueA = (a.status || '').toLowerCase();
@@ -1225,8 +1225,53 @@ export default function WorkerStatus() {
                           {sortField === 'server_name' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
                         </th>
                       )}
-                      {selectedFields.includes('proxy_wallet') && (
-                        <th>代理钱包</th>
+                      {selectedFields.includes('proxy_address') && (
+                        <th
+                          className="sortable-header"
+                          onClick={() => {
+                            if (sortField === 'proxy_address') {
+                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('proxy_address');
+                              setSortOrder('asc');
+                            }
+                          }}
+                        >
+                          代理地址
+                          {sortField === 'proxy_address' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                        </th>
+                      )}
+                      {selectedFields.includes('wallet_type') && (
+                        <th
+                          className="sortable-header"
+                          onClick={() => {
+                            if (sortField === 'wallet_type') {
+                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('wallet_type');
+                              setSortOrder('asc');
+                            }
+                          }}
+                        >
+                          钱包类型
+                          {sortField === 'wallet_type' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                        </th>
+                      )}
+                      {selectedFields.includes('created_at') && (
+                        <th
+                          className="sortable-header"
+                          onClick={() => {
+                            if (sortField === 'created_at') {
+                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('created_at');
+                              setSortOrder('asc');
+                            }
+                          }}
+                        >
+                          创建时间
+                          {sortField === 'created_at' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                        </th>
                       )}
                       {selectedFields.includes('status') && (
                         <th
@@ -1326,91 +1371,54 @@ export default function WorkerStatus() {
                       return (
                         <React.Fragment key={status.ip || status.id}>
                           <tr>
-                            {selectedFields.includes('ip') && <td>{status.ip}</td>}
                             {selectedFields.includes('server_name') && <td>{status.server_name || '-'}</td>}
-                            {selectedFields.includes('proxy_wallet') && (
+                            {selectedFields.includes('ip') && <td>{status.ip}</td>}
+                            {selectedFields.includes('proxy_address') && (
                               <td>
-                                {(() => {
-                                  const proxyAddress = getProxyWalletAddress(status.info_data, status.data);
-                                  if (proxyAddress) {
-                                    return (
-                                      <span
-                                        style={{
-                                          cursor: 'pointer',
-                                          color: '#1890ff',
-                                          textDecoration: 'underline',
-                                          fontFamily: 'monospace',
-                                        }}
-                                        onClick={async () => {
-                                          try {
-                                            await navigator.clipboard.writeText(proxyAddress);
-                                            showToast('代理钱包地址已复制到剪贴板', 'success');
-                                          } catch (err) {
-                                            secureLog.error('复制失败:', err);
-                                            // 降级方案：使用传统方法
-                                            const textArea = document.createElement('textarea');
-                                            textArea.value = proxyAddress;
-                                            textArea.style.position = 'fixed';
-                                            textArea.style.opacity = '0';
-                                            document.body.appendChild(textArea);
-                                            textArea.select();
-                                            try {
-                                              document.execCommand('copy');
-                                              showToast('代理钱包地址已复制到剪贴板', 'success');
-                                            } catch (e) {
-                                              showToast('复制失败，请手动复制', 'error');
-                                            }
-                                            document.body.removeChild(textArea);
-                                          }
-                                        }}
-                                        title={`点击复制完整地址: ${proxyAddress}`}
-                                      >
-                                        {formatProxyWalletAddress(proxyAddress)}
-                                      </span>
-                                    );
-                                  }
-                                  return <span style={{ color: '#999' }}>-</span>;
-                                })()}
+                                {status.proxy_address ? (
+                                  <span
+                                    style={{
+                                      cursor: 'pointer',
+                                      color: '#1890ff',
+                                      textDecoration: 'underline',
+                                      fontFamily: 'monospace',
+                                    }}
+                                    onClick={async () => {
+                                      try {
+                                        await navigator.clipboard.writeText(status.proxy_address!);
+                                        showToast('代理地址已复制到剪贴板', 'success');
+                                      } catch (err) {
+                                        secureLog.error('复制失败:', err);
+                                        // 降级方案：使用传统方法
+                                        const textArea = document.createElement('textarea');
+                                        textArea.value = status.proxy_address!;
+                                        textArea.style.position = 'fixed';
+                                        textArea.style.opacity = '0';
+                                        document.body.appendChild(textArea);
+                                        textArea.select();
+                                        try {
+                                          document.execCommand('copy');
+                                          showToast('代理地址已复制到剪贴板', 'success');
+                                        } catch (e) {
+                                          showToast('复制失败，请手动复制', 'error');
+                                        }
+                                        document.body.removeChild(textArea);
+                                      }
+                                    }}
+                                    title={`点击复制完整地址: ${status.proxy_address}`}
+                                  >
+                                    {status.proxy_address}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: '#999' }}>-</span>
+                                )}
                               </td>
                             )}
-                            {selectedFields.includes('status') && <td>{getStatusBadge(status)}</td>}
-                            {selectedFields.includes('response_time') && (
-                              <td>{status.response_time || '-'}</td>
+                            {selectedFields.includes('wallet_type') && (
+                              <td>{status.wallet_type || '-'}</td>
                             )}
-                            {selectedFields.includes('status_code') && (
-                              <td>{status.status_code || '-'}</td>
-                            )}
-                            {selectedFields.includes('error_msg') && (
-                              <td className="error-cell">{status.error_msg || '-'}</td>
-                            )}
-                            {selectedFields.includes('checked_at') && (
-                              <td>{formatTime(status.checked_at)}</td>
-                            )}
-                            {selectedFields.includes('position_count') && (
-                              <td className="key-metric-cell">
-                                {getKeyMetricValue(mergedData, 'position_count')}
-                              </td>
-                            )}
-                            {selectedFields.includes('order_count') && (
-                              <td className="key-metric-cell">
-                                {getKeyMetricValue(mergedData, 'order_count')}
-                              </td>
-                            )}
-                            {selectedFields.includes('balance') && (
-                              <td className="key-metric-cell">
-                                {getKeyMetricValue(mergedData, 'balance')}
-                              </td>
-                            )}
-                            {selectedFields.includes('total_assets') && (
-                              <td className="key-metric-cell">
-                                {getKeyMetricValue(mergedData, 'total_assets')}
-                              </td>
-                            )}
-                            {selectedFields.includes('version_number') && (
-                              <td className="key-metric-cell">
-                                {/* version_number 只从 info_data（info接口）中获取，不从 status 接口获取 */}
-                                {getKeyMetricValue(staticInfo, 'version_number')}
-                              </td>
+                            {selectedFields.includes('created_at') && (
+                              <td>{formatTime(status.created_at)}</td>
                             )}
                             <td>
                               <Space size="small" wrap>

@@ -115,6 +115,7 @@ export interface Secret {
   server_name?: string; // 服务器名称
   ip?: string; // IP地址
   proxy_address?: string; // 代理地址
+  base_address?: string; // 基础地址
   private_key?: string; // 私钥（加密后）
   api_key?: string; // API密钥（明文，后端明文存储）
   api_secret?: string; // API密钥（加密后）
@@ -131,6 +132,7 @@ export interface StoreSecretRequest {
   server_name?: string; // 服务器名称
   ip?: string; // IP地址
   proxy_address?: string; // 代理地址
+  base_address?: string; // 基础地址
   private_key?: string; // 私钥（需要加密，后端会再次加密存储）
   api_key?: string; // API密钥（需要加密传输，但后端明文存储）
   api_secret?: string; // API密钥（需要加密，后端会再次加密存储）
@@ -214,6 +216,8 @@ export interface WorkerStatus {
   key_name: string;
   ip: string;
   server_name: string;
+  proxy_address?: string; // 代理地址
+  wallet_type?: string; // 钱包类型
   status: 'online' | 'offline' | 'error';
   response_time: number;
   status_code: number;

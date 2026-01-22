@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Card,
   Form,
@@ -9,37 +9,24 @@ import {
   Row,
   Col,
   Table,
-  Tag,
   message,
   Typography,
-  Descriptions,
-  Alert,
   Divider
 } from 'antd';
 import {
   EyeOutlined,
   EyeInvisibleOutlined,
   ReloadOutlined,
-  CopyOutlined
+  CopyOutlined,
+  ExclamationCircleOutlined
 } from '@ant-design/icons';
-import { secretsAPI, StoreSecretRequest, ListSecretsResponse, Secret } from '../utils/api';
-import { parseJWT, decryptSecret, encryptSecret } from '../utils/crypto';
-import { validateKeyName, validateProxyAddress, sanitizeInput } from '../utils/validation';
-import { getSafeErrorMessage } from '../utils/security';
+import { secretsAPI, StoreSecretRequest, ListSecretsResponse } from '../utils/api';
+import { parseJWT, encryptSecret } from '../utils/crypto';
+import { validateKeyName, sanitizeInput } from '../utils/validation';
+import { getSafeErrorMessage, debounce, secureLog } from '../utils/security';
+import { getAddressFromPrivateKey, getPolymarketProxyAddress, isValidPrivateKey, SignatureType } from '../utils/wallet';
 
 const { Text } = Typography;
-
-interface DecryptedSecretData {
-  server_name?: string;
-  ip?: string;
-  proxy_address?: string;
-  api_key?: string;
-  api_secret?: string;
-  api_passphrase?: string;
-  private_key?: string;
-  wallet_type?: string;
-  signature_type?: number;
-}
 
 export default function SecretManagement() {
   const [form] = Form.useForm();
@@ -47,10 +34,9 @@ export default function SecretManagement() {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // 查询和解密相关状态
-  const [selectedKeyName, setSelectedKeyName] = useState('');
-  const [decryptedData, setDecryptedData] = useState<DecryptedSecretData | null>(null);
-  const [decrypting, setDecrypting] = useState(false);
+  // 钱包地址计算相关状态
+  const [walletAddress, setWalletAddress] = useState<string>('');
+  const [proxyAddress, setProxyAddress] = useState<string>('');
 
   // 加载密钥列表
   const loadSecrets = async () => {
@@ -68,25 +54,51 @@ export default function SecretManagement() {
 
   useEffect(() => {
     loadSecrets();
+
+    // 组件卸载时清理敏感状态
+    return () => {
+      setWalletAddress('');
+      setProxyAddress('');
+      // 取消正在进行的请求
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
 
-  // 根据签名类型获取钱包类型
+  // 根据签名类型获取钱包类型（与Go SDK保持一致）
+  // EOA: 裸钱包, Proxy: 邮箱钱包, Safe: 私钥钱包
   const getWalletTypeFromSignatureType = (signatureType: number): string => {
     const typeMap: { [key: number]: string } = {
-      0: 'EOA',
-      1: 'email',
-      2: 'key',
+      0: 'EOA',      // 裸钱包
+      1: 'proxy',    // 邮箱钱包
+      2: 'safe',     // 私钥钱包
     };
-    return typeMap[signatureType] || '';
+    return typeMap[signatureType] || 'key';
   };
 
   // 处理签名类型选择变化
-  const handleSignatureTypeChange = (e: any) => {
+  const handleSignatureTypeChange = async (e: any) => {
     const signatureType = e.target.value;
     form.setFieldsValue({
       signature_type: signatureType,
       wallet_type: getWalletTypeFromSignatureType(signatureType),
     });
+
+    // 如果已经有私钥和钱包地址，重新计算代理地址
+    const privateKey = form.getFieldValue('private_key');
+    if (privateKey && walletAddress) {
+      try {
+        const proxyAddress = await getPolymarketProxyAddress(walletAddress, signatureType);
+        setProxyAddress(proxyAddress);
+        form.setFieldsValue({
+          proxy_address: proxyAddress,
+        });
+      } catch (error) {
+        secureLog.warn('重新计算代理地址失败:', error);
+        message.error('重新计算代理地址失败，请手动输入');
+      }
+    }
   };
 
   // 处理密钥名称变化，同时更新服务器名称
@@ -96,6 +108,99 @@ export default function SecretManagement() {
       key_name: keyName,
       server_name: keyName, // 密钥名称和服务器名称保持一致
     });
+  };
+
+  // 用于取消正在进行的请求
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // 处理私钥输入变化，自动计算钱包地址和代理地址（带防抖）
+  const handlePrivateKeyChangeInternal = useCallback(async (privateKey: string) => {
+    // 取消之前的请求
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+
+    // 清空之前的结果
+    setWalletAddress('');
+    setProxyAddress('');
+
+    // 如果私钥为空，不进行计算
+    if (!privateKey) {
+      return;
+    }
+
+    // 验证私钥格式
+    if (!isValidPrivateKey(privateKey)) {
+      // 私钥格式无效，但不显示错误（可能用户还在输入）
+      return;
+    }
+
+    // 立即计算钱包地址（本地计算，不需要网络调用）
+    let calculatedAddress: string;
+    try {
+      calculatedAddress = getAddressFromPrivateKey(privateKey);
+      setWalletAddress(calculatedAddress);
+    } catch (error) {
+      secureLog.error('计算钱包地址失败:', error);
+      // 如果计算地址失败，可能是私钥格式问题
+      if (privateKey.length > 20) {
+        // 只有私钥长度足够时才显示错误（避免用户输入过程中频繁提示）
+        message.error('私钥格式无效，无法计算钱包地址');
+      }
+      return;
+    }
+
+    // 检查是否已取消
+    if (signal.aborted) return;
+
+    // 获取签名类型
+    const signatureType = form.getFieldValue('signature_type');
+
+    // 如果是EOA类型，代理地址等于基础地址，不需要调用网络
+    if (signatureType === SignatureType.EOA) {
+      setProxyAddress(calculatedAddress);
+      form.setFieldsValue({
+        proxy_address: calculatedAddress,
+      });
+      return;
+    }
+
+    // 异步获取代理地址（需要调用Polygon网络）
+    try {
+      const proxyAddress = await getPolymarketProxyAddress(calculatedAddress, signatureType);
+
+      // 再次检查是否已取消
+      if (signal.aborted) return;
+
+      setProxyAddress(proxyAddress);
+      // 自动填充代理地址到表单
+      form.setFieldsValue({
+        proxy_address: proxyAddress,
+      });
+    } catch (error) {
+      // 如果请求被取消，不显示错误
+      if (signal.aborted) return;
+
+      secureLog.warn('获取Polymarket代理地址失败:', error);
+      // 获取代理地址失败不影响钱包地址的显示，只显示错误toast
+      message.error('获取Polymarket代理地址失败，请手动输入代理地址');
+    }
+  }, [form]);
+
+  // 使用防抖包装处理函数（800ms延迟，减少RPC调用）
+  const debouncedHandlePrivateKeyChange = useCallback(
+    debounce((privateKey: string) => {
+      handlePrivateKeyChangeInternal(privateKey);
+    }, 800),
+    [handlePrivateKeyChangeInternal]
+  );
+
+  // 处理私钥输入变化
+  const handlePrivateKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const privateKey = e.target.value.trim();
+    debouncedHandlePrivateKeyChange(privateKey);
   };
 
   // 单个密钥上传
@@ -111,9 +216,9 @@ export default function SecretManagement() {
       }
       const clientKey = parseJWT(token);
 
-      // 验证至少需要一个密钥字段
-      if (!values.private_key && !values.api_key && !values.api_secret && !values.api_passphrase) {
-        message.error('至少需要提供私钥、api_key、api_secret或api_passphrase中的一个');
+      // 验证API密钥字段（三个都是必填的）
+      if (!values.api_key || !values.api_secret || !values.api_passphrase) {
+        message.error('API密钥 (API Key)、API密钥 (API Secret) 和 API密码短语(api_passphrase) 都是必填项');
         setSubmitting(false);
         return;
       }
@@ -124,9 +229,10 @@ export default function SecretManagement() {
         active: true, // 默认激活
         server_name: sanitizeInput(values.key_name), // 服务器名称和密钥名称一致
         ip: '', // IP地址不传，后端根据请求IP自动填写
-        proxy_address: values.proxy_address || '',
-        wallet_type: values.wallet_type ? sanitizeInput(values.wallet_type) : 'key',
-        signature_type: values.signature_type !== undefined ? values.signature_type : 2,
+        proxy_address: proxyAddress || '', // 使用计算出的代理地址
+        base_address: walletAddress || '', // 使用计算出的钱包地址作为基础地址
+        wallet_type: values.wallet_type ? sanitizeInput(values.wallet_type) : getWalletTypeFromSignatureType(values.signature_type || 1),
+        signature_type: values.signature_type !== undefined ? values.signature_type : 1,
       };
 
       // 只加密需要后端加密存储的字段：private_key 和 api_secret
@@ -147,88 +253,20 @@ export default function SecretManagement() {
 
       await secretsAPI.storeSecret(secretToUpload);
       message.success('密钥上传成功');
+
+      // 安全清理：立即清除敏感数据
       form.resetFields();
+      // 重置钱包地址相关状态
+      setWalletAddress('');
+      setProxyAddress('');
+      // 强制清除私钥字段（防止浏览器自动填充）
+      form.setFieldsValue({ private_key: '' });
+
       await loadSecrets();
     } catch (err: any) {
       message.error(getSafeErrorMessage(err, '上传失败'));
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  // 获取并解密密文
-  const handleGetAndDecrypt = async (keyName: string) => {
-    setSelectedKeyName(keyName);
-    setDecryptedData(null);
-    setDecrypting(true);
-
-    try {
-      // 获取加密的密钥
-      const secret: Secret = await secretsAPI.getSecret(keyName);
-
-      // 从localStorage获取token
-      const token = localStorage.getItem('token');
-      if (!token) {
-        message.error('未找到登录token');
-        return;
-      }
-
-      // 解析JWT获取client_key
-      const clientKey = parseJWT(token);
-
-      const decrypted: DecryptedSecretData = {};
-
-      // 解密敏感字段（只有 private_key 和 api_secret 需要解密，因为后端加密存储）
-      if (secret.private_key) {
-        decrypted.private_key = await decryptSecret(secret.private_key, clientKey);
-      }
-      if (secret.api_secret) {
-        decrypted.api_secret = await decryptSecret(secret.api_secret, clientKey);
-      }
-
-      // api_key 和 api_passphrase 在后端是明文存储的，后端返回时已经是明文，直接使用
-      if (secret.api_key) {
-        decrypted.api_key = secret.api_key;
-      }
-      if (secret.api_passphrase) {
-        decrypted.api_passphrase = secret.api_passphrase;
-      }
-
-      // 如果使用旧格式的value字段
-      if (secret.value && !decrypted.private_key) {
-        try {
-          const decryptedValue = await decryptSecret(secret.value, clientKey);
-          // 尝试解析为JSON
-          try {
-            const parsed = JSON.parse(decryptedValue);
-            Object.assign(decrypted, parsed);
-          } catch {
-            // 如果不是JSON，作为private_key
-            decrypted.private_key = decryptedValue;
-          }
-        } catch (e) {
-          // 忽略解密错误
-        }
-      }
-
-      // 添加非敏感字段
-      decrypted.server_name = secret.server_name || '';
-      decrypted.ip = secret.ip || '';
-      decrypted.proxy_address = secret.proxy_address || '';
-      decrypted.wallet_type = secret.wallet_type || '';
-      decrypted.signature_type = secret.signature_type || 1;
-
-      setDecryptedData(decrypted);
-      message.success('解密成功');
-    } catch (err: any) {
-      // 如果是403错误，显示错误提示
-      if (err?.response?.status === 403) {
-        message.error('无访问权限');
-      } else {
-        message.error(getSafeErrorMessage(err, '获取或解密失败'));
-      }
-    } finally {
-      setDecrypting(false);
     }
   };
 
@@ -238,13 +276,17 @@ export default function SecretManagement() {
     message.success(`已复制${label}到剪贴板`);
   };
 
+  // 格式化地址为 0x1234...1234 格式
+  const formatAddress = (address: string): string => {
+    if (!address || address.length < 10) return address;
+    if (address.startsWith('0x')) {
+      return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+    }
+    return address;
+  };
+
   // 表格列定义
   const columns = [
-    {
-      title: '密钥名称',
-      dataIndex: 'key_name',
-      key: 'key_name',
-    },
     {
       title: '服务器名称',
       dataIndex: 'server_name',
@@ -258,10 +300,79 @@ export default function SecretManagement() {
       render: (text: string) => text || '-',
     },
     {
+      title: '基础地址',
+      dataIndex: 'base_address',
+      key: 'base_address',
+      render: (text: string, record: any) => {
+        if (!text) return '-';
+        return (
+          <Space>
+            <Text
+              code
+              style={{
+                fontFamily: 'monospace',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+              onClick={() => handleCopy(record.base_address, '基础地址')}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = '#1890ff';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = '';
+              }}
+            >
+              {formatAddress(text)}
+            </Text>
+            <Button
+              type="text"
+              size="small"
+              icon={<CopyOutlined />}
+              onClick={() => handleCopy(record.base_address, '基础地址')}
+              style={{ padding: 0, height: 'auto' }}
+            />
+          </Space>
+        );
+      },
+    },
+    {
       title: '代理地址',
       dataIndex: 'proxy_address',
       key: 'proxy_address',
-      render: (text: string) => text ? (text.length > 20 ? `${text.substring(0, 20)}...` : text) : '-',
+      render: (text: string, record: any) => {
+        if (!text) return '-';
+        return (
+          <Space>
+            <Text
+              code
+              style={{
+                fontFamily: 'monospace',
+                cursor: 'pointer',
+                userSelect: 'none',
+                maxWidth: 200,
+                display: 'inline-block',
+              }}
+              onClick={() => handleCopy(record.proxy_address, '代理地址')}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = '#1890ff';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = '';
+              }}
+              ellipsis={{ tooltip: record.proxy_address }}
+            >
+              {formatAddress(text)}
+            </Text>
+            <Button
+              type="text"
+              size="small"
+              icon={<CopyOutlined />}
+              onClick={() => handleCopy(record.proxy_address, '代理地址')}
+              style={{ padding: 0, height: 'auto' }}
+            />
+          </Space>
+        );
+      },
       ellipsis: true,
     },
     {
@@ -271,34 +382,17 @@ export default function SecretManagement() {
       render: (text: string) => text || '-',
     },
     {
-      title: '激活',
-      dataIndex: 'active',
-      key: 'active',
-      render: (active: boolean) => (
-        <Tag color={active ? 'success' : 'default'}>
-          {active ? '激活' : '未激活'}
-        </Tag>
-      ),
-    },
-    {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
       render: (date: string) => new Date(date).toLocaleString('zh-CN'),
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_: any, record: any) => (
-        <Button
-          type="link"
-          onClick={() => handleGetAndDecrypt(record.key_name)}
-          disabled={decrypting && selectedKeyName === record.key_name}
-          loading={decrypting && selectedKeyName === record.key_name}
-        >
-          {decrypting && selectedKeyName === record.key_name ? '解密中...' : '获取并解密'}
-        </Button>
-      ),
+      // 后端已按创建时间倒序返回，前端直接使用后端顺序
+      // 保留sorter允许用户手动排序
+      sorter: (a: any, b: any) => {
+        const dateA = new Date(a.created_at).getTime();
+        const dateB = new Date(b.created_at).getTime();
+        return dateB - dateA; // 倒序：最新的在前
+      },
     },
   ];
 
@@ -312,8 +406,8 @@ export default function SecretManagement() {
             layout="vertical"
             onFinish={handleSubmitSecret}
             initialValues={{
-              signature_type: 2,
-              wallet_type: 'key',
+              signature_type: 1, // 默认使用Proxy类型（邮箱钱包）
+              wallet_type: 'proxy',
             }}
           >
             <Row gutter={24}>
@@ -341,33 +435,87 @@ export default function SecretManagement() {
                   />
                 </Form.Item>
                 <Form.Item
-                  label="代理地址"
-                  name="proxy_address"
-                  rules={[
-                    {
-                      validator: (_, value) => {
-                        if (!value) return Promise.resolve();
-                        const validation = validateProxyAddress(value);
-                        return validation.valid
-                          ? Promise.resolve()
-                          : Promise.reject(new Error(validation.error || '代理地址格式不正确'));
-                      }
-                    }
-                  ]}
+                  label={
+                    <Space>
+                      <span>私钥</span>
+                      <Space
+                        style={{
+                          color: '#ff4d4f',
+                          fontSize: 13,
+                          fontWeight: 500,
+                          backgroundColor: '#fff2f0',
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          border: '1px solid #ffccc7',
+                          marginLeft: 8
+                        }}
+                      >
+                        <ExclamationCircleOutlined style={{ fontSize: 14 }} />
+                        <span>请确保周围环境安全后再显示私钥</span>
+                      </Space>
+                    </Space>
+                  }
+                  name="private_key"
+                  tooltip="将自动加密存储，输入后会自动计算基础地址和Polymarket代理地址"
                 >
-                  <Input placeholder="代理地址" />
+                  <Input.Password
+                    placeholder="secret"
+                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+                    style={{ fontFamily: 'monospace' }}
+                    onChange={handlePrivateKeyChange}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                  />
                 </Form.Item>
                 <Form.Item
                   label="签名类型"
                   name="signature_type"
                   rules={[{ required: true, message: '请选择签名类型' }]}
+                  tooltip="EOA: 裸钱包，代理地址等于基础地址；Proxy: 邮箱钱包；Safe: 私钥钱包"
                 >
                   <Radio.Group onChange={handleSignatureTypeChange} buttonStyle="solid">
-                    <Radio.Button value={0}>EOA</Radio.Button>
-                    <Radio.Button value={1}>Email</Radio.Button>
-                    <Radio.Button value={2}>Key</Radio.Button>
+                    <Radio.Button value={0}>EOA (裸钱包)</Radio.Button>
+                    <Radio.Button value={1}>Proxy (邮箱钱包)</Radio.Button>
+                    <Radio.Button value={2}>Safe (私钥钱包)</Radio.Button>
                   </Radio.Group>
                 </Form.Item>
+                {/* 显示计算出的钱包地址和代理地址 */}
+                {(walletAddress || proxyAddress) && (
+                  <div style={{ marginBottom: 16, padding: '8px 12px', backgroundColor: '#f5f5f5', borderRadius: 4 }}>
+                    {walletAddress && (
+                      <div style={{ marginBottom: walletAddress && proxyAddress ? 8 : 0 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>基础地址: </Text>
+                        <Text code style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                          {formatAddress(walletAddress)}
+                        </Text>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<CopyOutlined />}
+                          onClick={() => handleCopy(walletAddress, '钱包地址')}
+                          style={{ marginLeft: 8 }}
+                        />
+                      </div>
+                    )}
+                    {proxyAddress && (
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>代理地址: </Text>
+                        <Text code style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                          {formatAddress(proxyAddress)}
+                        </Text>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<CopyOutlined />}
+                          onClick={() => handleCopy(proxyAddress, '代理地址')}
+                          style={{ marginLeft: 8 }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
                 <Form.Item name="wallet_type" hidden>
                   <Input />
                 </Form.Item>
@@ -376,28 +524,12 @@ export default function SecretManagement() {
                 </Form.Item>
               </Col>
 
-              {/* 右栏 - 密钥相关字段 */}
+              {/* 右栏 - API密钥相关字段 */}
               <Col xs={24} lg={12}>
-                <Form.Item
-                  label="私钥"
-                  name="private_key"
-                  tooltip="将自动加密存储"
-                >
-                  <Input.Password
-                    placeholder="secret"
-                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
-                    style={{ fontFamily: 'monospace' }}
-                  />
-                </Form.Item>
-                <Alert
-                  message="⚠️ 请确保周围环境安全后再显示私钥"
-                  type="warning"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                />
                 <Form.Item
                   label="API密钥 (API Key)"
                   name="api_key"
+                  rules={[{ required: true, message: '请输入API密钥 (API Key)' }]}
                   tooltip="明文存储"
                 >
                   <Input.Password
@@ -409,6 +541,7 @@ export default function SecretManagement() {
                 <Form.Item
                   label="API密钥 (API Secret)"
                   name="api_secret"
+                  rules={[{ required: true, message: '请输入API密钥 (API Secret)' }]}
                   tooltip="将自动加密存储"
                 >
                   <Input.Password
@@ -420,6 +553,7 @@ export default function SecretManagement() {
                 <Form.Item
                   label="API密码短语(api_passphrase)"
                   name="api_passphrase"
+                  rules={[{ required: true, message: '请输入API密码短语(api_passphrase)' }]}
                   tooltip="明文存储"
                 >
                   <Input.Password
@@ -470,95 +604,6 @@ export default function SecretManagement() {
             }}
           />
         </Card>
-
-        {/* 解密结果显示 */}
-        {decryptedData && (
-          <Card title={`解密结果 - ${selectedKeyName}`}>
-            <Descriptions column={2} bordered>
-              {decryptedData.server_name && (
-                <Descriptions.Item label="服务器名称">
-                  <Text code>{decryptedData.server_name}</Text>
-                </Descriptions.Item>
-              )}
-              {decryptedData.ip && (
-                <Descriptions.Item label="IP地址">
-                  <Text code>{decryptedData.ip}</Text>
-                </Descriptions.Item>
-              )}
-              {decryptedData.proxy_address && (
-                <Descriptions.Item label="代理地址">
-                  <Text code>{decryptedData.proxy_address}</Text>
-                </Descriptions.Item>
-              )}
-              {decryptedData.wallet_type && (
-                <Descriptions.Item label="钱包类型">
-                  <Text code>{decryptedData.wallet_type}</Text>
-                </Descriptions.Item>
-              )}
-              {decryptedData.signature_type !== undefined && (
-                <Descriptions.Item label="签名类型">
-                  <Text code>{decryptedData.signature_type}</Text>
-                </Descriptions.Item>
-              )}
-              {decryptedData.private_key && (
-                <Descriptions.Item label="私钥" span={2}>
-                  <Space>
-                    <Text code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                      {decryptedData.private_key}
-                    </Text>
-                    <Button
-                      type="text"
-                      icon={<CopyOutlined />}
-                      onClick={() => handleCopy(decryptedData.private_key!, '私钥')}
-                    />
-                  </Space>
-                </Descriptions.Item>
-              )}
-              {decryptedData.api_key && (
-                <Descriptions.Item label="API密钥 (API Key)" span={2}>
-                  <Space>
-                    <Text code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                      {decryptedData.api_key}
-                    </Text>
-                    <Button
-                      type="text"
-                      icon={<CopyOutlined />}
-                      onClick={() => handleCopy(decryptedData.api_key!, 'API密钥')}
-                    />
-                  </Space>
-                </Descriptions.Item>
-              )}
-              {decryptedData.api_secret && (
-                <Descriptions.Item label="API密钥 (API Secret)" span={2}>
-                  <Space>
-                    <Text code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                      {decryptedData.api_secret}
-                    </Text>
-                    <Button
-                      type="text"
-                      icon={<CopyOutlined />}
-                      onClick={() => handleCopy(decryptedData.api_secret!, 'API密钥Secret')}
-                    />
-                  </Space>
-                </Descriptions.Item>
-              )}
-              {decryptedData.api_passphrase && (
-                <Descriptions.Item label="API密码短语(api_passphrase)" span={2}>
-                  <Space>
-                    <Text code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                      {decryptedData.api_passphrase}
-                    </Text>
-                    <Button
-                      type="text"
-                      icon={<CopyOutlined />}
-                      onClick={() => handleCopy(decryptedData.api_passphrase!, 'API密码短语(api_passphrase)')}
-                    />
-                  </Space>
-                </Descriptions.Item>
-              )}
-            </Descriptions>
-          </Card>
-        )}
       </Space>
     </div>
   );
