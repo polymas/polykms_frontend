@@ -231,8 +231,8 @@ export default function SecretManagement() {
         ip: '', // IP地址不传，后端根据请求IP自动填写
         proxy_address: proxyAddress || '', // 使用计算出的代理地址
         base_address: walletAddress || '', // 使用计算出的钱包地址作为基础地址
-        wallet_type: values.wallet_type ? sanitizeInput(values.wallet_type) : getWalletTypeFromSignatureType(values.signature_type || 1),
-        signature_type: values.signature_type !== undefined ? values.signature_type : 1,
+        wallet_type: values.wallet_type ? sanitizeInput(values.wallet_type) : getWalletTypeFromSignatureType(values.signature_type || 2),
+        signature_type: values.signature_type !== undefined ? values.signature_type : 2,
       };
 
       // 只加密需要后端加密存储的字段：private_key 和 api_secret
@@ -406,8 +406,8 @@ export default function SecretManagement() {
             layout="vertical"
             onFinish={handleSubmitSecret}
             initialValues={{
-              signature_type: 1, // 默认使用Proxy类型（邮箱钱包）
-              wallet_type: 'proxy',
+              signature_type: 2, // 默认使用Safe类型（私钥钱包）
+              wallet_type: 'safe',
             }}
           >
             <Row gutter={24}>
