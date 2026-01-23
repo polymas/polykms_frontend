@@ -541,6 +541,25 @@ export default function WorkerStatus() {
     return () => clearInterval(interval);
   }, [autoRefresh, refreshInterval, hideOffline]);
 
+  // 根据检查时间判断工作机是否在线（一分钟内算在线）
+  const isWorkerOnline = (workerStatus: WorkerStatusType): boolean => {
+    // 优先使用updated_at，如果没有则使用checked_at
+    const timeStr = workerStatus.updated_at || workerStatus.checked_at;
+    if (!timeStr) {
+      return false;
+    }
+    
+    try {
+      const checkTime = new Date(timeStr).getTime();
+      const now = Date.now();
+      const diffMs = now - checkTime;
+      // 一分钟 = 60 * 1000 毫秒
+      return diffMs <= 60 * 1000;
+    } catch {
+      return false;
+    }
+  };
+
   // 格式化时间
   const formatTime = (timeStr: string) => {
     try {
@@ -1080,9 +1099,9 @@ export default function WorkerStatus() {
 
     return {
       total: filteredAndSortedStatuses.length,
-      online: filteredAndSortedStatuses.filter((s) => s.status === 'online').length,
-      // error 状态统一计入 offline
-      offline: filteredAndSortedStatuses.filter((s) => s.status === 'offline' || s.status === 'error').length,
+      online: filteredAndSortedStatuses.filter((s) => isWorkerOnline(s)).length,
+      // 根据检查时间判断离线（超过一分钟算离线）
+      offline: filteredAndSortedStatuses.filter((s) => !isWorkerOnline(s)).length,
       error: 0, // error 已统一计入 offline，这里设为 0
       totalAssets,
       totalBalance,
@@ -1389,9 +1408,16 @@ export default function WorkerStatus() {
                             )}
                             {selectedFields.includes('status') && (
                               <td>
-                                <span className={`status-badge status-${status.status}`}>
-                                  {status.status === 'online' ? '在线' : status.status === 'offline' ? '离线' : '错误'}
-                                </span>
+                                {(() => {
+                                  // 根据检查时间判断是否在线（超过一分钟算离线）
+                                  const isOnline = isWorkerOnline(status);
+                                  const displayStatus = isOnline ? 'online' : 'offline';
+                                  return (
+                                    <span className={`status-badge status-${displayStatus}`}>
+                                      {isOnline ? '在线' : '离线'}
+                                    </span>
+                                  );
+                                })()}
                               </td>
                             )}
                             {selectedFields.includes('response_time') && (
