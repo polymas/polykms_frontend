@@ -122,6 +122,7 @@ export interface Secret {
   api_passphrase?: string; // API密码短语（明文，后端明文存储）
   wallet_type?: string; // 钱包类型
   signature_type?: number; // 签名类型
+  extra_info?: string; // 额外信息（JSON字符串）
   created_at: string;
 }
 
@@ -139,6 +140,7 @@ export interface StoreSecretRequest {
   api_passphrase?: string; // API密码短语（需要加密传输，但后端明文存储）
   wallet_type?: string; // 钱包类型
   signature_type?: number; // 签名类型
+  extra_info?: string; // 额外信息（JSON字符串）
 }
 
 export interface StoreSecretResponse {
