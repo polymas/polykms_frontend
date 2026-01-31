@@ -3,6 +3,7 @@ import {
   Card,
   Form,
   Input,
+  InputNumber,
   Button,
   Radio,
   Space,
@@ -235,6 +236,10 @@ export default function SecretManagement() {
         signature_type: values.signature_type !== undefined ? values.signature_type : 2,
       };
 
+      // ExtraInfo：子项 tail_order_share，默认 100，范围 0-1000
+      const tailOrderShare = Math.round(Number(values.tail_order_share ?? 100));
+      secretToUpload.extra_info = JSON.stringify({ tail_order_share: tailOrderShare });
+
       // 只加密需要后端加密存储的字段：private_key 和 api_secret
       if (values.private_key) {
         secretToUpload.private_key = await encryptSecret(values.private_key, clientKey);
@@ -408,6 +413,7 @@ export default function SecretManagement() {
             initialValues={{
               signature_type: 2, // 默认使用Safe类型（私钥钱包）
               wallet_type: 'safe',
+              tail_order_share: 100, // ExtraInfo 子项，默认 100
             }}
           >
             <Row gutter={24}>
@@ -559,6 +565,29 @@ export default function SecretManagement() {
                   <Input.Password
                     placeholder="api_passphrase"
                     iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="ExtraInfo - tail_order_share"
+                  name="tail_order_share"
+                  rules={[
+                    { required: true, message: '请输入 tail_order_share' },
+                    {
+                      type: 'number',
+                      min: 0,
+                      max: 1000,
+                      message: 'tail_order_share 需为 0-1000 的整数',
+                    },
+                  ]}
+                  tooltip="尾单分成比例，0-1000 的整数，默认 100"
+                >
+                  <InputNumber
+                    min={0}
+                    max={1000}
+                    step={1}
+                    precision={0}
+                    placeholder="100"
+                    style={{ width: '100%' }}
                   />
                 </Form.Item>
               </Col>
