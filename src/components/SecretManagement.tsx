@@ -636,10 +636,10 @@ export default function SecretManagement() {
           </Form>
         </Card>
 
-        {/* 密钥列表：仅管理员可见 */}
+        {/* 密钥列表：仅管理员可见；非管理员仅能使用上方添加密钥表单 */}
         {isAdmin && (
           <Card
-            title="我的密钥列表"
+            title="密钥列表"
             extra={
               <Button
                 icon={<ReloadOutlined />}
