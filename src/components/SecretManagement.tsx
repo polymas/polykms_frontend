@@ -29,18 +29,25 @@ import { getAddressFromPrivateKey, getPolymarketProxyAddress, isValidPrivateKey,
 
 const { Text } = Typography;
 
+// 从 localStorage 读取是否管理员（仅管理员可查看密钥列表）
+function getIsAdmin(): boolean {
+  return localStorage.getItem('is_admin') === 'true';
+}
+
 export default function SecretManagement() {
   const [form] = Form.useForm();
   const [secrets, setSecrets] = useState<ListSecretsResponse['secrets']>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const isAdmin = getIsAdmin();
 
   // 钱包地址计算相关状态
   const [walletAddress, setWalletAddress] = useState<string>('');
   const [proxyAddress, setProxyAddress] = useState<string>('');
 
-  // 加载密钥列表
+  // 加载密钥列表（仅管理员会调用）
   const loadSecrets = async () => {
+    if (!isAdmin) return;
     setLoading(true);
     try {
       const response = await secretsAPI.listSecrets();
@@ -54,7 +61,9 @@ export default function SecretManagement() {
   };
 
   useEffect(() => {
-    loadSecrets();
+    if (isAdmin) {
+      loadSecrets();
+    }
 
     // 组件卸载时清理敏感状态
     return () => {
@@ -65,7 +74,7 @@ export default function SecretManagement() {
         abortControllerRef.current.abort();
       }
     };
-  }, []);
+  }, [isAdmin]);
 
   // 根据签名类型获取钱包类型（与Go SDK保持一致）
   // EOA: 裸钱包, Proxy: 邮箱钱包, Safe: 私钥钱包
@@ -227,6 +236,7 @@ export default function SecretManagement() {
       // 构建上传数据（清理输入，IP地址不传，由后端自动填写）
       const secretToUpload: StoreSecretRequest = {
         key_name: sanitizeInput(values.key_name),
+        group_id: typeof values.group_id === 'number' ? values.group_id : (Number(values.group_id) || 0),
         active: true, // 默认激活
         server_name: sanitizeInput(values.key_name), // 服务器名称和密钥名称一致
         ip: '', // IP地址不传，后端根据请求IP自动填写
@@ -267,7 +277,10 @@ export default function SecretManagement() {
       // 强制清除私钥字段（防止浏览器自动填充）
       form.setFieldsValue({ private_key: '' });
 
-      await loadSecrets();
+      // 仅管理员刷新密钥列表（普通用户不显示列表）
+      if (isAdmin) {
+        await loadSecrets();
+      }
     } catch (err: any) {
       message.error(getSafeErrorMessage(err, '上传失败'));
     } finally {
@@ -297,6 +310,13 @@ export default function SecretManagement() {
       dataIndex: 'server_name',
       key: 'server_name',
       render: (text: string) => text || '-',
+    },
+    {
+      title: '分组ID',
+      dataIndex: 'group_id',
+      key: 'group_id',
+      width: 90,
+      render: (val: number | undefined) => (val != null && val !== 0 ? String(val) : '未分组'),
     },
     {
       title: 'IP地址',
@@ -414,6 +434,7 @@ export default function SecretManagement() {
               signature_type: 2, // 默认使用Safe类型（私钥钱包）
               wallet_type: 'safe',
               tail_order_share: 100, // ExtraInfo 子项，默认 100
+              group_id: 0, // 分组ID，0 表示未分组
             }}
           >
             <Row gutter={24}>
@@ -439,6 +460,13 @@ export default function SecretManagement() {
                     placeholder="例如: server_001"
                     onChange={handleKeyNameChange}
                   />
+                </Form.Item>
+                <Form.Item
+                  label="分组ID"
+                  name="group_id"
+                  tooltip="用于按分组聚合每日资产快照，0 表示未分组"
+                >
+                  <InputNumber min={0} step={1} placeholder="0（未分组）" style={{ width: '100%' }} />
                 </Form.Item>
                 <Form.Item
                   label={
@@ -608,31 +636,33 @@ export default function SecretManagement() {
           </Form>
         </Card>
 
-        {/* 密钥列表 */}
-        <Card
-          title="我的密钥列表"
-          extra={
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={loadSecrets}
+        {/* 密钥列表：仅管理员可见 */}
+        {isAdmin && (
+          <Card
+            title="我的密钥列表"
+            extra={
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={loadSecrets}
+                loading={loading}
+              >
+                刷新
+              </Button>
+            }
+          >
+            <Table
+              columns={columns}
+              dataSource={secrets}
+              rowKey="id"
               loading={loading}
-            >
-              刷新
-            </Button>
-          }
-        >
-          <Table
-            columns={columns}
-            dataSource={secrets}
-            rowKey="id"
-            loading={loading}
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: true,
-              showTotal: (total) => `共 ${total} 条`,
-            }}
-          />
-        </Card>
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                showTotal: (total) => `共 ${total} 条`,
+              }}
+            />
+          </Card>
+        )}
       </Space>
     </div>
   );

@@ -60,6 +60,8 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
+      localStorage.removeItem('username');
+      localStorage.removeItem('is_admin');
       window.location.href = '/login';
     }
 
@@ -103,12 +105,14 @@ export interface LoginResponse {
   token: string;
   user_id: number;
   username: string;
+  is_admin: boolean;
   message: string;
 }
 
 export interface Secret {
   id: number;
   user_id: number;
+  group_id?: number; // 分组ID，0 表示未分组
   key_name: string;
   value?: string; // 加密后的密文（base64），兼容旧字段
   active?: boolean; // 是否激活
@@ -128,6 +132,7 @@ export interface Secret {
 
 export interface StoreSecretRequest {
   key_name: string;
+  group_id?: number; // 分组ID，0 表示未分组
   value?: string; // 兼容旧字段，如果设置了新字段则忽略
   active?: boolean; // 是否激活
   server_name?: string; // 服务器名称
@@ -189,12 +194,14 @@ export const authAPI = {
    */
   login: async (data: LoginRequest): Promise<LoginResponse> => {
     const response = await api.post<LoginResponse>('/api/v1/auth/login', data);
-    // 保存token到localStorage（注意：存在XSS风险，建议后端使用httpOnly cookie）
+    // 保存 token 与用户信息到 localStorage（注意：存在 XSS 风险，建议后端使用 httpOnly cookie）
     if (response.data.token) {
-      // 使用sessionStorage替代localStorage可以降低风险（关闭标签页后自动清除）
-      // 但最佳方案是后端使用httpOnly cookie
       try {
         localStorage.setItem('token', response.data.token);
+        if (response.data.username) {
+          localStorage.setItem('username', response.data.username);
+        }
+        localStorage.setItem('is_admin', String(!!response.data.is_admin));
       } catch (e) {
         secureLog.error('保存token失败:', e);
         throw new Error('无法保存登录状态');
