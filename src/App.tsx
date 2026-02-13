@@ -1,12 +1,11 @@
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Menu, Button } from 'antd';
-import { KeyOutlined, MonitorOutlined, LogoutOutlined, BarChartOutlined } from '@ant-design/icons';
+import { KeyOutlined, MonitorOutlined, LogoutOutlined } from '@ant-design/icons';
 import Login from './components/Login';
 import Register from './components/Register';
 import SecretManagement from './components/SecretManagement';
 import WorkerStatus from './components/WorkerStatus';
-import PolymarketAnalytics from './components/PolymarketAnalytics';
 import EnvironmentBanner from './components/EnvironmentBanner';
 import './App.css';
 
@@ -54,11 +53,10 @@ function Navigation() {
     navigate('/login');
   };
 
-  // 普通账号：仅「密钥管理」（上传秘钥）；管理员：密钥管理 + 工作机状态 + 数据分析
+  // 普通账号：仅「密钥管理」（上传秘钥）；管理员：密钥管理 + 工作机状态
   const allMenuItems = [
     { key: '/secrets', icon: <KeyOutlined />, label: '密钥管理', adminOnly: false },
     { key: '/workers', icon: <MonitorOutlined />, label: '工作机状态', adminOnly: true },
-    { key: '/analytics', icon: <BarChartOutlined />, label: 'Polymarket 数据分析', adminOnly: false },
   ];
   const menuItems = allMenuItems.filter((item) => !item.adminOnly || isAdmin).map(({ key, icon, label }) => ({ key, icon, label }));
 
@@ -165,16 +163,6 @@ function App() {
                 <WorkerStatus />
               </MainLayout>
             </AdminRoute>
-          }
-        />
-        <Route
-          path="/analytics"
-          element={
-            <ProtectedRoute>
-              <MainLayout>
-                <PolymarketAnalytics />
-              </MainLayout>
-            </ProtectedRoute>
           }
         />
         
