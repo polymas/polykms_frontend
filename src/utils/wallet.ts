@@ -62,11 +62,16 @@ export function isValidAddress(address: string): boolean {
 }
 
 /**
- * Polygon网络RPC端点
+ * Polygon 主网公开 RPC 端点（来自 Polygon 官方文档，无需 API Key）
+ * 按顺序尝试，使用第一个可用的
  */
 const POLYGON_RPC_URLS = [
-  'https://polygon-rpc.com',
-  'https://rpc.ankr.com/polygon',
+  'https://polygon.drpc.org',           // dRPC，官方推荐
+  'https://polygon.publicnode.com',     // Allnodes/PublicNode
+  'https://polygon-public.nodies.app',  // Nodies
+  'https://rpc.ankr.com/polygon',       // Ankr
+  'https://1rpc.io/matic',              // 1RPC
+  'https://tenderly.rpc.polygon.community', // Tenderly
 ];
 
 // 缓存Provider实例，避免重复创建和测试连接

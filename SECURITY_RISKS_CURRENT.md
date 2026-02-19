@@ -64,7 +64,7 @@ console.warn('获取Polymarket代理地址失败:', error); // 可能泄露RPC�
 **问题描述**:
 ```typescript
 const POLYGON_RPC_URLS = [
-  'https://polygon-rpc.com',
+  'https://polygon.drpc.org',
   'https://rpc.ankr.com/polygon',
 ];
 ```
