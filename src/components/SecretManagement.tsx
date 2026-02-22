@@ -26,28 +26,25 @@ import { parseJWT, encryptSecret } from '../utils/crypto';
 import { validateKeyName, sanitizeInput } from '../utils/validation';
 import { getSafeErrorMessage, debounce, secureLog } from '../utils/security';
 import { getAddressFromPrivateKey, getPolymarketProxyAddress, isValidPrivateKey, SignatureType } from '../utils/wallet';
+import { getRole } from '../utils/api';
 
 const { Text } = Typography;
-
-// 从 localStorage 读取是否管理员（仅管理员可查看密钥列表）
-function getIsAdmin(): boolean {
-  return localStorage.getItem('is_admin') === 'true';
-}
 
 export default function SecretManagement() {
   const [form] = Form.useForm();
   const [secrets, setSecrets] = useState<ListSecretsResponse['secrets']>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const isAdmin = getIsAdmin();
+  const role = getRole();
+  const canListSecrets = role === 'admin' || role === 'customer'; // admin 全量，customer 本人
 
   // 钱包地址计算相关状态
   const [walletAddress, setWalletAddress] = useState<string>('');
   const [proxyAddress, setProxyAddress] = useState<string>('');
 
-  // 加载密钥列表（仅管理员会调用）
+  // 加载密钥列表（admin 全量，customer 本人；data_entry 不展示列表）
   const loadSecrets = async () => {
-    if (!isAdmin) return;
+    if (!canListSecrets) return;
     setLoading(true);
     try {
       const response = await secretsAPI.listSecrets();
@@ -61,7 +58,7 @@ export default function SecretManagement() {
   };
 
   useEffect(() => {
-    if (isAdmin) {
+    if (canListSecrets) {
       loadSecrets();
     }
 
@@ -74,7 +71,7 @@ export default function SecretManagement() {
         abortControllerRef.current.abort();
       }
     };
-  }, [isAdmin]);
+  }, [canListSecrets]);
 
   // 根据签名类型获取钱包类型（与Go SDK保持一致）
   // EOA: 裸钱包, Proxy: 邮箱钱包, Safe: 私钥钱包
@@ -277,8 +274,7 @@ export default function SecretManagement() {
       // 强制清除私钥字段（防止浏览器自动填充）
       form.setFieldsValue({ private_key: '' });
 
-      // 仅管理员刷新密钥列表（普通用户不显示列表）
-      if (isAdmin) {
+      if (canListSecrets) {
         await loadSecrets();
       }
     } catch (err: any) {
@@ -636,8 +632,8 @@ export default function SecretManagement() {
           </Form>
         </Card>
 
-        {/* 密钥列表：仅管理员可见；非管理员仅能使用上方添加密钥表单 */}
-        {isAdmin && (
+        {/* 密钥列表：admin 全量 / customer 本人可见，data_entry 仅能使用上方添加密钥表单 */}
+        {canListSecrets && (
           <Card
             title="密钥列表"
             extra={

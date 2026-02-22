@@ -62,6 +62,7 @@ api.interceptors.response.use(
       localStorage.removeItem('token');
       localStorage.removeItem('username');
       localStorage.removeItem('is_admin');
+      localStorage.removeItem('role');
       window.location.href = '/login';
     }
 
@@ -101,11 +102,22 @@ export interface LoginRequest {
   password: string;
 }
 
+/** 角色：数据录入员 / 客户 / 管理员；仅用于前端 UI 显隐，鉴权以后端 JWT 为准 */
+export type Role = 'data_entry' | 'customer' | 'admin';
+
+/** 从 localStorage 读取当前角色（兼容旧版仅有 is_admin 时：无 role 则按 is_admin 推导） */
+export function getRole(): Role {
+  const role = localStorage.getItem('role') as Role | null;
+  if (role === 'admin' || role === 'customer' || role === 'data_entry') return role;
+  return localStorage.getItem('is_admin') === 'true' ? 'admin' : 'data_entry';
+}
+
 export interface LoginResponse {
   token: string;
   user_id: number;
   username: string;
   is_admin: boolean;
+  role?: Role;
   message: string;
 }
 
@@ -202,6 +214,8 @@ export const authAPI = {
           localStorage.setItem('username', response.data.username);
         }
         localStorage.setItem('is_admin', String(!!response.data.is_admin));
+        const role = response.data.role ?? (response.data.is_admin ? 'admin' : 'data_entry');
+        localStorage.setItem('role', role);
       } catch (e) {
         secureLog.error('保存token失败:', e);
         throw new Error('无法保存登录状态');
