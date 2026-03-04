@@ -1,4 +1,16 @@
-/* 全局样式 - 浅色主题，使用 Ant Design */
+/* 全局样式 - PolyDash 浅色主题 */
+
+:root {
+  --polydash-bg: #f1f5f9;
+  --polydash-bg-card: #ffffff;
+  --polydash-border: rgba(0, 0, 0, 0.06);
+  --polydash-text: #1e293b;
+  --polydash-text-muted: #64748b;
+  --polydash-positive: #22c55e;
+  --polydash-negative: #ef4444;
+  --polydash-accent: #3b82f6;
+  --polydash-radius: 12px;
+}
 
 * {
   margin: 0;
@@ -12,15 +24,19 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #f0f2f5;
+  background: var(--polydash-bg);
+  color: var(--polydash-text);
 }
 
-/* 自定义样式覆盖 */
+#root {
+  min-height: 100vh;
+}
+
 .ant-layout {
-  background: #f0f2f5;
+  background: var(--polydash-bg) !important;
 }
 
-/* 登录/注册页面居中 */
+/* 登录/注册页面 */
 .auth-container {
   display: flex;
   justify-content: center;
@@ -29,17 +45,236 @@ body {
   padding: 24px;
 }
 
-/* 页面容器 */
+.auth-container .ant-card {
+  background: var(--polydash-bg-card) !important;
+  border: 1px solid var(--polydash-border) !important;
+  border-radius: var(--polydash-radius) !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+}
+
+.auth-container .ant-typography {
+  color: var(--polydash-text) !important;
+}
+
+.auth-container .ant-form-item-label > label {
+  color: var(--polydash-text-muted) !important;
+}
+
+.auth-container .ant-input,
+.auth-container .ant-input-password input {
+  background: #fff !important;
+  border-color: var(--polydash-border) !important;
+  color: var(--polydash-text) !important;
+}
+
+.auth-container .ant-input::placeholder {
+  color: var(--polydash-text-muted);
+}
+
+.auth-container .ant-input-affix-wrapper {
+  background: #fff !important;
+  border-color: var(--polydash-border) !important;
+}
+
+/* 页面容器（密钥管理、工作机状态等） */
 .page-container {
   max-width: 1400px;
   margin: 0 auto;
-  background: #fff;
+  background: var(--polydash-bg-card);
   padding: 24px;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-radius: var(--polydash-radius);
+  border: 1px solid var(--polydash-border);
 }
 
-/* 响应式 */
+/* 全局表格、卡片浅色补充 */
+.ant-table-thead > tr > th {
+  color: var(--polydash-text-muted) !important;
+  border-color: var(--polydash-border) !important;
+}
+
+.ant-table-tbody > tr > td {
+  border-color: var(--polydash-border) !important;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: rgba(0, 0, 0, 0.02) !important;
+}
+
+.ant-card {
+  background: var(--polydash-bg-card) !important;
+  border-color: var(--polydash-border) !important;
+  color: var(--polydash-text);
+}
+
+.ant-card-head {
+  border-bottom-color: var(--polydash-border) !important;
+  color: var(--polydash-text) !important;
+}
+
+.ant-card-head-title {
+  color: var(--polydash-text) !important;
+}
+
+.ant-modal-content {
+  background: var(--polydash-bg-card) !important;
+  border: 1px solid var(--polydash-border);
+  border-radius: var(--polydash-radius);
+}
+
+.ant-modal-header {
+  background: transparent !important;
+  border-bottom-color: var(--polydash-border) !important;
+}
+
+.ant-modal-title {
+  color: var(--polydash-text) !important;
+}
+
+.ant-modal-body {
+  color: var(--polydash-text);
+}
+
+.ant-select-selector,
+.ant-input,
+.ant-input-number,
+.ant-picker {
+  background: #fff !important;
+  border-color: var(--polydash-border) !important;
+  color: var(--polydash-text) !important;
+}
+
+.ant-select-selection-item,
+.ant-select-selection-placeholder {
+  color: var(--polydash-text) !important;
+}
+
+.ant-alert {
+  border-radius: 8px;
+}
+
+/* 顶部导航 */
+.app-header {
+  background: var(--polydash-bg-card) !important;
+  border-bottom: 1px solid var(--polydash-border);
+  height: 56px;
+  line-height: 56px;
+}
+
+.app-header .ant-menu {
+  background: transparent !important;
+  color: var(--polydash-text-muted);
+}
+
+.app-header .ant-menu-horizontal > .ant-menu-item,
+.app-header .ant-menu-horizontal > .ant-menu-submenu-title {
+  color: var(--polydash-text-muted);
+}
+
+.app-header .ant-menu-horizontal > .ant-menu-item-selected,
+.app-header .ant-menu-horizontal > .ant-menu-item:hover,
+.app-header .ant-menu-horizontal > .ant-menu-submenu:hover .ant-menu-submenu-title {
+  color: var(--polydash-accent) !important;
+}
+
+.app-content {
+  background: var(--polydash-bg) !important;
+}
+
+/* 测试环境横幅 */
+.ant-alert-warning {
+  border-radius: 0;
+}
+
+/* 工作机状态 - 浅色适配 */
+.app-content .worker-status-container {
+  color: var(--polydash-text);
+}
+
+.app-content .stats-container-top {
+  background: var(--polydash-bg-card) !important;
+  border-color: var(--polydash-border) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.app-content .stat-item-top {
+  background: #f8fafc !important;
+  border-color: var(--polydash-border) !important;
+}
+
+.app-content .stat-item-top .stat-label {
+  color: var(--polydash-text-muted) !important;
+}
+
+.app-content .stat-item-top .stat-value {
+  color: var(--polydash-text) !important;
+}
+
+.app-content .stat-item-top.stat-online .stat-value {
+  color: var(--polydash-positive) !important;
+}
+
+.app-content .stat-item-top.stat-offline .stat-value {
+  color: var(--polydash-text-muted) !important;
+}
+
+.app-content .stat-item-top.stat-divider .stat-value {
+  color: var(--polydash-accent) !important;
+}
+
+.app-content .worker-status-header {
+  border-bottom-color: var(--polydash-border) !important;
+}
+
+.app-content .worker-status-header h2 {
+  color: var(--polydash-text) !important;
+}
+
+.app-content .sidebar-section {
+  background: var(--polydash-bg-card) !important;
+  border: 1px solid var(--polydash-border);
+  box-shadow: none;
+}
+
+.app-content .sidebar-title {
+  color: var(--polydash-text) !important;
+  border-bottom-color: var(--polydash-border) !important;
+}
+
+.app-content .table-container {
+  background: var(--polydash-bg-card) !important;
+  border: 1px solid var(--polydash-border);
+  box-shadow: none;
+}
+
+.app-content .worker-status-table thead {
+  background: #f8fafc !important;
+}
+
+.app-content .worker-status-table th {
+  color: var(--polydash-text-muted) !important;
+  border-color: var(--polydash-border) !important;
+}
+
+.app-content .worker-status-table td {
+  border-color: var(--polydash-border) !important;
+  color: var(--polydash-text);
+}
+
+.app-content .worker-status-table tr:hover td {
+  background: rgba(0, 0, 0, 0.02) !important;
+}
+
+.app-content .search-input {
+  background: #fff !important;
+  border-color: var(--polydash-border) !important;
+  color: var(--polydash-text) !important;
+}
+
+.app-content .ant-descriptions-item-label,
+.app-content .ant-descriptions-item-content {
+  color: var(--polydash-text) !important;
+}
+
 @media (max-width: 768px) {
   .page-container {
     padding: 16px;

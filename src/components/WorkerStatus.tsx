@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Button, Space, Card, Descriptions, Tag, Typography, Tooltip } from 'antd';
 import { ReloadOutlined, CopyOutlined, UploadOutlined, WalletOutlined, CheckCircleOutlined, DownOutlined, RightOutlined } from '@ant-design/icons';
 import { workersAPI, ordersAPI, WorkerStatus as WorkerStatusType } from '../utils/api';
@@ -9,6 +10,7 @@ import './WorkerStatus.css';
 const { Text } = Typography;
 
 export default function WorkerStatus() {
+  const location = useLocation();
   const [statuses, setStatuses] = useState<WorkerStatusType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
@@ -61,6 +63,16 @@ export default function WorkerStatus() {
   useEffect(() => {
     showPositionsRowsRef.current = showPositionsRows;
   }, [showPositionsRows]);
+
+  // 从数据分析页跳转过来时，展开指定 IP 的行
+  const highlightIp = (location.state as { highlightIp?: string } | null)?.highlightIp;
+  useEffect(() => {
+    if (!highlightIp || statuses.length === 0) return;
+    const s = statuses.find((x) => x.ip === highlightIp);
+    if (s) {
+      setExpandedRows((prev) => new Set([...prev, s.id]));
+    }
+  }, [highlightIp, statuses]);
 
   // 可选的字段列表
   const availableFields = [
@@ -548,7 +560,7 @@ export default function WorkerStatus() {
     if (!timeStr) {
       return false;
     }
-    
+
     try {
       const checkTime = new Date(timeStr).getTime();
       const now = Date.now();

@@ -1,0 +1,453 @@
+/* PolyDash 浅色主题 - 客户看板，左侧为分组选择栏 */
+
+:root {
+  --polydash-bg: #f1f5f9;
+  --polydash-bg-card: #ffffff;
+  --polydash-bg-sidebar: #ffffff;
+  --polydash-bg-sidebar-active: #eff6ff;
+  --polydash-border: rgba(0, 0, 0, 0.06);
+  --polydash-text: #1e293b;
+  --polydash-text-muted: #64748b;
+  --polydash-positive: #22c55e;
+  --polydash-negative: #ef4444;
+  --polydash-accent: #3b82f6;
+  --polydash-radius: 12px;
+}
+
+/* 整体布局 */
+.polydash-dashboard {
+  background: var(--polydash-bg);
+  min-height: 100vh;
+  color: var(--polydash-text);
+}
+
+.polydash-dashboard.dashboard-layout {
+  min-height: 60vh;
+}
+
+/* 左侧分组选择栏 */
+.polydash-dashboard .dashboard-sidebar {
+  background: var(--polydash-bg-sidebar);
+  border-right: 1px solid var(--polydash-border);
+}
+
+.polydash-dashboard .dashboard-sidebar-header {
+  border-bottom-color: var(--polydash-border);
+}
+
+.polydash-dashboard .dashboard-sidebar-title {
+  color: var(--polydash-text);
+  font-size: 15px;
+}
+
+.polydash-dashboard .dashboard-sidebar-toggle {
+  color: var(--polydash-text-muted);
+}
+
+.polydash-dashboard .dashboard-sidebar-toggle:hover {
+  color: var(--polydash-accent);
+}
+
+.polydash-dashboard .dashboard-sidebar-item {
+  color: var(--polydash-text-muted);
+}
+
+.polydash-dashboard .dashboard-sidebar-item:hover {
+  background: #f1f5f9;
+  color: var(--polydash-text);
+}
+
+.polydash-dashboard .dashboard-sidebar-item-active {
+  background: var(--polydash-bg-sidebar-active);
+  color: var(--polydash-accent);
+  font-weight: 600;
+}
+
+.polydash-dashboard .dashboard-sidebar-item-active:hover {
+  background: var(--polydash-bg-sidebar-active);
+  color: var(--polydash-accent);
+}
+
+/* 主内容区 */
+.polydash-dashboard .dashboard-main {
+  background: var(--polydash-bg);
+  padding: 20px 24px 32px;
+}
+
+.polydash-dashboard .ant-alert {
+  border-radius: var(--polydash-radius);
+}
+
+.polydash-dashboard .ant-btn-primary {
+  background: var(--polydash-accent);
+  border-color: var(--polydash-accent);
+  border-radius: 8px;
+}
+
+/* 顶部 KPI 卡片 */
+.dashboard-kpi-row .polydash-kpi-card {
+  background: var(--polydash-bg-card);
+  border: 1px solid var(--polydash-border);
+  border-radius: var(--polydash-radius);
+  padding: 16px;
+  min-height: 88px;
+}
+
+.polydash-kpi-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--polydash-text);
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.polydash-kpi-value.positive {
+  color: var(--polydash-positive);
+}
+
+.polydash-kpi-value.negative {
+  color: var(--polydash-negative);
+}
+
+.polydash-kpi-label {
+  font-size: 12px;
+  color: var(--polydash-text-muted);
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+/* 每日表现日历卡片 */
+.polydash-dashboard .polydash-calendar-card {
+  background: var(--polydash-bg-card) !important;
+  border: 1px solid var(--polydash-border) !important;
+  border-radius: var(--polydash-radius) !important;
+}
+
+.polydash-dashboard .polydash-calendar-card .ant-card-head {
+  background: transparent !important;
+  border-bottom-color: var(--polydash-border) !important;
+  min-height: 48px;
+}
+
+.polydash-dashboard .polydash-calendar-card .ant-card-head-title {
+  color: var(--polydash-text) !important;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.polydash-dashboard .polydash-calendar-card .ant-card-body {
+  background: transparent !important;
+  padding: 16px;
+}
+
+.polydash-dashboard .polydash-calendar-card .ant-card-extra {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.polydash-daily-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.polydash-month-btn {
+  color: var(--polydash-text-muted);
+}
+
+.polydash-month-btn:hover:not(:disabled) {
+  color: var(--polydash-accent);
+}
+
+.polydash-month-label {
+  color: var(--polydash-text-muted);
+  font-size: 13px;
+}
+
+.polydash-section-title {
+  color: var(--polydash-text);
+}
+
+/* 日历表格 - 浅色日格 */
+.polydash-daily-calendar table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.polydash-daily-calendar thead th {
+  color: var(--polydash-text-muted) !important;
+  font-weight: 600;
+  font-size: 11px;
+  text-align: center;
+  padding: 8px 4px !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+.polydash-daily-calendar .polydash-day-cell {
+  border: 1px solid var(--polydash-border);
+  border-radius: 8px;
+  margin: 2px;
+  background: #f8fafc;
+  min-width: 52px;
+}
+
+.polydash-daily-calendar .polydash-day-cell.empty {
+  background: #f1f5f9;
+  border-color: transparent;
+}
+
+.polydash-daily-calendar .polydash-day-cell.profit {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.polydash-daily-calendar .polydash-day-cell.loss {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.polydash-daily-calendar .polydash-day-cell.today {
+  border: 2px solid var(--polydash-accent);
+  box-shadow: 0 0 0 1px var(--polydash-accent);
+}
+
+.polydash-daily-calendar .polydash-day-cell.clickable {
+  cursor: pointer;
+}
+
+.polydash-daily-calendar .polydash-day-cell.clickable:hover {
+  background: #e2e8f0 !important;
+}
+
+.polydash-daily-calendar .polydash-day-num {
+  font-weight: 600;
+  color: var(--polydash-text-muted);
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.polydash-daily-calendar .polydash-day-pnl {
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.polydash-daily-calendar .polydash-day-pnl.positive {
+  color: var(--polydash-positive);
+}
+
+.polydash-daily-calendar .polydash-day-pnl.negative {
+  color: var(--polydash-negative);
+}
+
+.polydash-daily-calendar .polydash-day-volume {
+  font-size: 10px;
+  color: var(--polydash-text-muted);
+  margin-top: 2px;
+}
+
+.polydash-daily-calendar .polydash-day-empty {
+  color: rgba(100, 116, 139, 0.5);
+}
+
+/* 分组/账户卡片 - Main Wallet 风格 */
+.polydash-dashboard .polydash-account-card {
+  background: var(--polydash-bg-card) !important;
+  border: 1px solid var(--polydash-border) !important;
+  border-radius: var(--polydash-radius) !important;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.polydash-dashboard .polydash-account-card:hover {
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.polydash-dashboard .polydash-account-card .ant-card-head {
+  display: none;
+}
+
+.polydash-dashboard .polydash-account-card .ant-card-body {
+  padding: 18px !important;
+  background: transparent !important;
+}
+
+.polydash-account-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.polydash-account-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--polydash-accent), #6366f1);
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.polydash-account-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--polydash-text);
+}
+
+.polydash-account-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.polydash-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.polydash-metric-label {
+  font-size: 11px;
+  color: var(--polydash-text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.polydash-metric-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--polydash-text);
+}
+
+.polydash-metric-value.positive {
+  color: var(--polydash-positive);
+}
+
+.polydash-metric-value.negative {
+  color: var(--polydash-negative);
+}
+
+.polydash-dashboard .dashboard-group-card-selected {
+  border-color: rgba(59, 130, 246, 0.6) !important;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25);
+}
+
+/* 无数据/加载 */
+.polydash-dashboard .dashboard-card-loading {
+  min-height: 140px;
+  color: var(--polydash-text-muted);
+}
+
+.polydash-dashboard .ant-spin-dot-item {
+  background: var(--polydash-accent);
+}
+
+/* 暂无数据提示 */
+.polydash-dashboard .ant-card {
+  background: var(--polydash-bg-card) !important;
+  border-color: var(--polydash-border) !important;
+  color: var(--polydash-text);
+}
+
+.polydash-dashboard .ant-alert-info {
+  background: #eff6ff !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+.polydash-dashboard .ant-alert-message {
+  color: var(--polydash-text) !important;
+}
+
+.polydash-dashboard .ant-alert-description {
+  color: var(--polydash-text-muted) !important;
+}
+
+/* 布局保留 */
+.dashboard-layout {
+  display: flex;
+  min-height: 60vh;
+  gap: 0;
+}
+
+.dashboard-sidebar {
+  width: 200px;
+  min-width: 200px;
+  flex-shrink: 0;
+  padding: 12px 0;
+  transition: width 0.2s ease, min-width 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-sidebar-collapsed {
+  width: 56px;
+  min-width: 56px;
+}
+
+.dashboard-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 12px;
+  margin-bottom: 8px;
+}
+
+.dashboard-sidebar-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.dashboard-sidebar-item {
+  padding: 10px 16px;
+  margin: 2px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.dashboard-sidebar-collapsed .dashboard-sidebar-item {
+  padding: 10px;
+  text-align: center;
+  margin: 2px 8px;
+}
+
+.dashboard-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.dashboard-calendar-cards-row {
+  align-items: stretch;
+}
+
+.dashboard-calendar-cards-row .ant-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-calendar-cards-row .ant-card-body {
+  flex: 1;
+}
+
+.dashboard-cards-panel {
+  min-height: 200px;
+}
+
+.dashboard-group-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

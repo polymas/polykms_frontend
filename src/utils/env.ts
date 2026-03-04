@@ -58,3 +58,11 @@ export function getBackendUrl(): string {
   return getApiBaseUrl();
 }
 
+/** poly_activity 钱包活动缓存后端基地址（每日交易额/利润）；开发模式默认 localhost:7001 便于调试 */
+export function getActivityApiBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_ACTIVITY_API_BASE_URL;
+  if (envUrl) return envUrl;
+  if (import.meta.env.DEV) return 'http://localhost:7001';
+  return 'https://www.polyking.site/activity';
+}
+

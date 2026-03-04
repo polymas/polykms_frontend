@@ -171,7 +171,7 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
 
   return (
     <div className="auth-container">
-      <Card style={{ width: 450, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+      <Card className="auth-card" style={{ width: 450 }}>
         <Title level={2} style={{ textAlign: 'center', marginBottom: 24 }}>
           注册
         </Title>

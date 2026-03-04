@@ -78,19 +78,18 @@ function Navigation() {
   };
 
   return (
-    <Header style={{
+    <Header className="app-header" style={{
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
-      background: '#fff',
       padding: '0 24px',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
     }}>
       <Menu
         mode="horizontal"
         selectedKeys={[location.pathname]}
         items={menuItems}
         onClick={handleMenuClick}
+        className="app-nav-menu"
         style={{ flex: 1, borderBottom: 'none' }}
       />
       <Button
@@ -108,10 +107,10 @@ function Navigation() {
 // 主布局组件
 function MainLayout({ children }: { children: React.ReactNode }) {
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout className="app-layout" style={{ minHeight: '100vh' }}>
       <EnvironmentBanner />
       <Navigation />
-      <Content style={{ padding: '24px', background: '#f0f2f5' }}>
+      <Content className="app-content" style={{ padding: '24px' }}>
         {children}
       </Content>
     </Layout>
@@ -132,7 +131,7 @@ function AuthPage() {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh', background: '#f0f2f5' }}>
+    <Layout className="app-layout auth-layout" style={{ minHeight: '100vh' }}>
       <EnvironmentBanner />
       {authMode === 'login' ? (
         <Login

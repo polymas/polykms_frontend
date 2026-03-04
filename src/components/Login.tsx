@@ -81,7 +81,7 @@ export default function Login({ onLoginSuccess, onSwitchToRegister }: LoginProps
 
   return (
     <div className="auth-container">
-      <Card style={{ width: 400, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+      <Card className="auth-card" style={{ width: 400 }}>
         <Title level={2} style={{ textAlign: 'center', marginBottom: 24 }}>
           登录
         </Title>
