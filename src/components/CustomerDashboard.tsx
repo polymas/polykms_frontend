@@ -467,8 +467,10 @@ export default function CustomerDashboard() {
           {(() => {
             const curve =
               selectedGroupForChart == null ? dailyCurveAll : dailyProfitByGroup[selectedGroupForChart] || [];
-            const totalProfit = curve.reduce((s, p) => s + p.profit, 0);
-            const totalVolume = curve.reduce((s, p) => s + p.volume, 0);
+            // 近30日：只取 curve 中日期最近的 30 天（curve 已按 date 升序）
+            const curveLast30 = curve.slice(-30);
+            const totalProfit = curveLast30.reduce((s, p) => s + p.profit, 0);
+            const totalVolume = curveLast30.reduce((s, p) => s + p.volume, 0);
             const monthRate = totalVolume > 0 ? (totalProfit / totalVolume) * 100 : null;
             const todayStr = new Date().toISOString().slice(0, 10);
             const todayPoint = curve.find((p) => p.date === todayStr);
