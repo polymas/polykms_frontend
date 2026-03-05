@@ -905,8 +905,8 @@ export default function CustomerDashboard() {
                           return (
                             <Table.Summary fixed>
                               <Table.Summary.Row>
-                                <Table.Summary.Cell index={0} colSpan={3} align="right" style={{ fontWeight: 600 }}>
-                                  合计
+                                <Table.Summary.Cell index={0} colSpan={3} align="right">
+                                  <span style={{ fontWeight: 600 }}>合计</span>
                                 </Table.Summary.Cell>
                                 <Table.Summary.Cell index={1} align="right">
                                   {pageData.reduce((s, r) => s + (r.count ?? 0), 0)}
