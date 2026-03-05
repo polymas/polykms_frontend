@@ -81,6 +81,17 @@ type GroupData = {
 /** 分组每日汇总：日盈利额、日交易额、日盈利率（%） */
 type DailyPoint = { date: string; profit: number; volume: number; rate: number | null };
 
+/** 当日交易明细按 token_id 聚合后的行类型 */
+type DayAggRow = {
+  tokenId: string;
+  typesStr: string;
+  count: number;
+  size: number;
+  usdcSize: number;
+  pnl: number;
+  lastTs: number;
+};
+
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'];
 
 /** 利润日历：按周排布日期，每格显示当日利润与交易额；可选点击某日回调 */
@@ -802,7 +813,7 @@ export default function CustomerDashboard() {
                       typesStr: Array.from(agg.types).filter(Boolean).sort().join(', ') || '–',
                     }));
                     return (
-                      <Table
+                      <Table<DayAggRow>
                         size="small"
                         rowKey="tokenId"
                         dataSource={aggregated}
@@ -813,7 +824,7 @@ export default function CustomerDashboard() {
                             title: '最后平仓时间',
                             dataIndex: 'lastTs',
                             width: 160,
-                            sorter: (a: { lastTs: number }, b: { lastTs: number }) => (a.lastTs ?? 0) - (b.lastTs ?? 0),
+                            sorter: (a, b) => (a.lastTs ?? 0) - (b.lastTs ?? 0),
                             sortDirections: ['descend', 'ascend'],
                             defaultSortOrder: 'descend',
                             render: (ts: number) => (ts ? new Date(ts * 1000).toLocaleString('zh-CN') : '–'),
@@ -823,7 +834,7 @@ export default function CustomerDashboard() {
                             dataIndex: 'tokenId',
                             width: 200,
                             ellipsis: { showTitle: true },
-                            sorter: (a: { tokenId: string }, b: { tokenId: string }) => (a.tokenId ?? '').localeCompare(b.tokenId ?? ''),
+                            sorter: (a, b) => (a.tokenId ?? '').localeCompare(b.tokenId ?? ''),
                             sortDirections: ['ascend', 'descend'],
                             render: (tid: string) => tid ?? '–',
                           },
@@ -831,7 +842,7 @@ export default function CustomerDashboard() {
                             title: '类型',
                             dataIndex: 'typesStr',
                             width: 100,
-                            sorter: (a: { typesStr: string }, b: { typesStr: string }) => (a.typesStr ?? '').localeCompare(b.typesStr ?? ''),
+                            sorter: (a, b) => (a.typesStr ?? '').localeCompare(b.typesStr ?? ''),
                             sortDirections: ['ascend', 'descend'],
                           },
                           {
@@ -839,7 +850,7 @@ export default function CustomerDashboard() {
                             dataIndex: 'count',
                             width: 72,
                             align: 'right',
-                            sorter: (a: { count: number }, b: { count: number }) => (a.count ?? 0) - (b.count ?? 0),
+                            sorter: (a, b) => (a.count ?? 0) - (b.count ?? 0),
                             sortDirections: ['ascend', 'descend'],
                           },
                           {
@@ -847,7 +858,7 @@ export default function CustomerDashboard() {
                             dataIndex: 'size',
                             width: 110,
                             align: 'right',
-                            sorter: (a: { size: number }, b: { size: number }) => (a.size ?? 0) - (b.size ?? 0),
+                            sorter: (a, b) => (a.size ?? 0) - (b.size ?? 0),
                             sortDirections: ['ascend', 'descend'],
                             render: (v: number) => (v != null ? Number(v).toFixed(2) : '–'),
                           },
@@ -856,7 +867,7 @@ export default function CustomerDashboard() {
                             dataIndex: 'usdcSize',
                             width: 130,
                             align: 'right',
-                            sorter: (a: { usdcSize: number }, b: { usdcSize: number }) => (a.usdcSize ?? 0) - (b.usdcSize ?? 0),
+                            sorter: (a, b) => (a.usdcSize ?? 0) - (b.usdcSize ?? 0),
                             sortDirections: ['ascend', 'descend'],
                             render: (v: number) => (v != null ? formatMoney(v) : '–'),
                           },
@@ -865,7 +876,7 @@ export default function CustomerDashboard() {
                             dataIndex: 'pnl',
                             width: 110,
                             align: 'right',
-                            sorter: (a: { pnl: number }, b: { pnl: number }) => (a.pnl ?? 0) - (b.pnl ?? 0),
+                            sorter: (a, b) => (a.pnl ?? 0) - (b.pnl ?? 0),
                             sortDirections: ['ascend', 'descend'],
                             render: (v: number) =>
                               v != null ? (
