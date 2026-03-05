@@ -81,6 +81,9 @@ type GroupData = {
 /** 分组每日汇总：日盈利额、日交易额、日盈利率（%） */
 type DailyPoint = { date: string; profit: number; volume: number; rate: number | null };
 
+/** 资产变化曲线点：日期 + 累计盈亏（用于曲线图） */
+type AssetChangePoint = { date: string; cumulative: number };
+
 /** 当日交易明细按 token_id 聚合后的行类型 */
 type DayAggRow = {
   tokenId: string;
@@ -209,6 +212,8 @@ export default function CustomerDashboard() {
   const [dailyDisplayMonthOffset, setDailyDisplayMonthOffset] = useState(0);
   /** 每日表现：日历 / 曲线图 */
   const [dailyViewMode, setDailyViewMode] = useState<'calendar' | 'curve'>('calendar');
+  /** 曲线图模式：总资产变化 / 盈利额变化 */
+  const [curveChartMode, setCurveChartMode] = useState<'assets' | 'profit'>('assets');
   /** 点击日历某一天后选中的日期（YYYY-MM-DD），用于展示当日平仓交易 */
   const [selectedDailyDate, setSelectedDailyDate] = useState<string | null>(null);
   /** 当日平仓交易列表（卖出 SELL + 赎回 REDEEM，接口同时请求两种类型） */
@@ -254,7 +259,7 @@ export default function CustomerDashboard() {
     }
     let cancelled = false;
     setDayRecordsLoading(true);
-    const pageSize = 100;
+    const pageSize = 5000;
     const fetchAll = async () => {
       const all: ActivityRecordItem[] = [];
       let page = 1;
@@ -528,10 +533,23 @@ export default function CustomerDashboard() {
                 className="polydash-calendar-card"
                 title={
                   <span className="polydash-section-title">
-                    {selectedGroupForChart == null ? '每日表现 · 全部' : `每日表现 · ${selectedGroupForChart}`}
-                    <span className="polydash-month-label" style={{ marginLeft: 8, fontWeight: 500, opacity: 0.9 }}>
-                      {getDisplayMonthLabel(dailyDisplayMonthOffset)}
-                    </span>
+                    {dailyViewMode === 'curve'
+                      ? (selectedGroupForChart == null
+                          ? (curveChartMode === 'assets' ? '总资产变化曲线 · 全部' : '盈利额变化曲线 · 全部')
+                          : (curveChartMode === 'assets' ? `总资产变化曲线 · ${selectedGroupForChart}` : `盈利额变化曲线 · ${selectedGroupForChart}`))
+                      : selectedGroupForChart == null
+                        ? '每日表现 · 全部'
+                        : `每日表现 · ${selectedGroupForChart}`}
+                    {dailyViewMode === 'calendar' && (
+                      <span className="polydash-month-label" style={{ marginLeft: 8, fontWeight: 500, opacity: 0.9 }}>
+                        {getDisplayMonthLabel(dailyDisplayMonthOffset)}
+                      </span>
+                    )}
+                    {dailyViewMode === 'curve' && (
+                      <span className="polydash-month-label" style={{ marginLeft: 8, fontWeight: 500, opacity: 0.9 }}>
+                        全部数据
+                      </span>
+                    )}
                   </span>
                 }
                 extra={
@@ -567,6 +585,18 @@ export default function CustomerDashboard() {
                       onChange={(v) => setDailyViewMode(v === 'curve' ? 'curve' : 'calendar')}
                       style={{ marginLeft: 8 }}
                     />
+                    {dailyViewMode === 'curve' && (
+                      <Segmented
+                        size="small"
+                        options={[
+                          { label: '总资产变化', value: 'assets' },
+                          { label: '盈利额变化', value: 'profit' },
+                        ]}
+                        value={curveChartMode}
+                        onChange={(v) => setCurveChartMode(v === 'profit' ? 'profit' : 'assets')}
+                        style={{ marginLeft: 8 }}
+                      />
+                    )}
                   </div>
                 }
                 size="small"
@@ -583,9 +613,43 @@ export default function CustomerDashboard() {
                     : dailyProfitByGroup[selectedGroupForChart] || [];
                 const monthCurve = getCurveForMonth(fullCurve, dailyDisplayMonthOffset);
                 if (dailyViewMode === 'curve') {
-                  return monthCurve.length > 0 ? (
+                  const sorted = [...fullCurve].sort((a, b) => a.date.localeCompare(b.date));
+                  const totalProfitInRange = sorted.reduce((s, p) => s + p.profit, 0);
+                  const isAssets = curveChartMode === 'assets';
+                  let totalAssets = 0;
+                  if (isAssets) {
+                    if (selectedGroupForChart == null) {
+                      groupKeys.forEach((k) => {
+                        const d = groupData[k]?.aggregate;
+                        if (d) totalAssets += d.total_assets ?? 0;
+                      });
+                    } else {
+                      totalAssets = groupData[selectedGroupForChart]?.aggregate?.total_assets ?? 0;
+                    }
+                  }
+                  const initialAssets = isAssets ? totalAssets - totalProfitInRange : 0;
+                  let sum = 0;
+                  const points: AssetChangePoint[] = sorted.map((p) => {
+                    sum += p.profit;
+                    return { date: p.date, cumulative: initialAssets + sum };
+                  });
+                  if (isAssets && points.length > 0 && initialAssets !== 0) {
+                    const firstDate = new Date(points[0].date);
+                    firstDate.setDate(firstDate.getDate() - 1);
+                    points.unshift({ date: firstDate.toISOString().slice(0, 10), cumulative: initialAssets });
+                  }
+                  const chartLabel = isAssets ? '资产' : '累计盈亏';
+                  return points.length > 0 ? (
                     <ResponsiveContainer width="100%" height={320}>
-                      <LineChart data={monthCurve} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                      <LineChart
+                        data={points}
+                        margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
+                        onClick={(e: { activeLabel?: string | number }) => {
+                          const label = e?.activeLabel;
+                          const date = label != null ? String(label) : undefined;
+                          if (date) setSelectedDailyDate(date);
+                        }}
+                      >
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
                         <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="#94a3b8" />
                         <YAxis
@@ -596,15 +660,29 @@ export default function CustomerDashboard() {
                         <Tooltip
                           contentStyle={{ background: '#1e293b', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}
                           labelStyle={{ color: '#f1f5f9' }}
-                          formatter={(value) => [formatMoney(Number(value ?? 0)), '利润']}
-                          labelFormatter={(label) => `日期: ${label}`}
+                          formatter={(value) => [formatMoney(Number(value ?? 0)), chartLabel]}
+                          labelFormatter={(label) => `日期: ${label}（点击查看当日交易明细）`}
                         />
-                        <Line type="monotone" dataKey="profit" name="利润" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
+                        <Line
+                          type="monotone"
+                          dataKey="cumulative"
+                          name={chartLabel}
+                          stroke="#3b82f6"
+                          strokeWidth={2}
+                          dot={{
+                            r: 4,
+                            cursor: 'pointer',
+                            onClick: (e: unknown) => {
+                              const payload = (e as { payload?: AssetChangePoint })?.payload;
+                              if (payload?.date) setSelectedDailyDate(payload.date);
+                            },
+                          }}
+                        />
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
                     <div style={{ minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13 }}>
-                      该月暂无数据
+                      暂无数据
                     </div>
                   );
                 }
@@ -821,6 +899,33 @@ export default function CustomerDashboard() {
                         dataSource={aggregated}
                         pagination={false}
                         scroll={{ x: 720 }}
+                        summary={(pageData) => {
+                          if (pageData.length === 0) return null;
+                          const totalPnl = pageData.reduce((s, r) => s + (r.pnl ?? 0), 0);
+                          return (
+                            <Table.Summary fixed>
+                              <Table.Summary.Row>
+                                <Table.Summary.Cell index={0} colSpan={3} align="right" style={{ fontWeight: 600 }}>
+                                  合计
+                                </Table.Summary.Cell>
+                                <Table.Summary.Cell index={1} align="right">
+                                  {pageData.reduce((s, r) => s + (r.count ?? 0), 0)}
+                                </Table.Summary.Cell>
+                                <Table.Summary.Cell index={2} align="right">
+                                  {(pageData.reduce((s, r) => s + (r.size ?? 0), 0)).toFixed(2)}
+                                </Table.Summary.Cell>
+                                <Table.Summary.Cell index={3} align="right">
+                                  {formatMoney(pageData.reduce((s, r) => s + (r.usdcSize ?? 0), 0))}
+                                </Table.Summary.Cell>
+                                <Table.Summary.Cell index={4} align="right">
+                                  <span className={totalPnl >= 0 ? 'polydash-positive' : 'polydash-negative'}>
+                                    {(totalPnl >= 0 ? '+' : '') + formatMoney(totalPnl)}
+                                  </span>
+                                </Table.Summary.Cell>
+                              </Table.Summary.Row>
+                            </Table.Summary>
+                          );
+                        }}
                         columns={[
                           {
                             title: '最后平仓时间',

@@ -667,7 +667,7 @@ export const activityAPI = {
       to_date: params.toDate,
       types: params.types,
       page: params.page ?? 1,
-      page_size: params.pageSize ?? 20,
+      page_size: params.pageSize ?? 5000,
     };
     const response = await api.post<ActivityRecordsResponse>('/api/v1/activity/records', body);
     return response.data;
