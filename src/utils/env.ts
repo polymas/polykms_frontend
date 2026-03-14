@@ -65,4 +65,3 @@ export function getActivityApiBaseUrl(): string {
   if (import.meta.env.DEV) return 'http://localhost:7001';
   return 'https://www.polyking.site/activity';
 }
-

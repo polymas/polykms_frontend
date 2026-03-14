@@ -66,12 +66,10 @@ export function isValidAddress(address: string): boolean {
  * 按顺序尝试，使用第一个可用的
  */
 const POLYGON_RPC_URLS = [
-  'https://polygon.drpc.org',           // dRPC，官方推荐
-  'https://polygon.publicnode.com',     // Allnodes/PublicNode
-  'https://polygon-public.nodies.app',  // Nodies
-  'https://rpc.ankr.com/polygon',       // Ankr
-  'https://1rpc.io/matic',              // 1RPC
-  'https://tenderly.rpc.polygon.community', // Tenderly
+  "https://rpc-mainnet.matic.quiknode.pro",   // ✅ 已验证可用
+  "https://polygon-bor.publicnode.com",       // ✅ 已验证可用
+  "https://polygon.api.onfinality.io/public", // ✅ 已验证可用
+  "https://137.rpc.thirdweb.com",             // ✅ 已验证可用
 ];
 
 // 缓存Provider实例，避免重复创建和测试连接
