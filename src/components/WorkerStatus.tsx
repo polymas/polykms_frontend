@@ -27,15 +27,15 @@ export default function WorkerStatus() {
     'total_assets',
     'version_number',
   ]);
-  // 自动刷新功能（UI已隐藏，但功能仍在使用）
-  const [autoRefresh] = useState(true);
+  // 自动刷新功能（可在页面上暂停/恢复）
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshInterval] = useState(10); // 秒
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set()); // 展开的行ID
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [searchKeyword, setSearchKeyword] = useState<string>(''); // 搜索关键词
   const [sortField, setSortField] = useState<string>('server_name'); // 排序字段
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc'); // 排序顺序
-  const [hideOffline, setHideOffline] = useState<boolean>(true); // 隐藏离线机器，默认隐藏
+  const [hideOffline, setHideOffline] = useState<boolean>(false); // 隐藏离线机器，默认不隐藏
   const [selectedFile, setSelectedFile] = useState<File | null>(null); // 选定的文件
   const [uploading, setUploading] = useState<Set<string>>(new Set()); // 正在上传的工作机IP集合
   const [positionsData, setPositionsData] = useState<Map<string, any>>(new Map()); // 仓位数据，key为IP
@@ -210,13 +210,13 @@ export default function WorkerStatus() {
         }
       } else {
         secureLog.warn('响应数据格式异常:', response);
-        setStatuses([]);
+        // 响应格式异常时也保留之前的数据
       }
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || err.message || '加载工作机状态失败';
       setError(errorMsg);
       secureLog.error('加载工作机状态失败:', err);
-      setStatuses([]);
+      // 请求失败时保留之前的数据，不清空 statuses
     } finally {
       setLoading(false);
     }
@@ -1014,6 +1014,12 @@ export default function WorkerStatus() {
     }
 
     // 按指定字段排序
+    const getMergedDataForSort = (s: WorkerStatusType) => {
+      const staticInfo = parseInfoData(s.info_data) || {};
+      const dynamicData = s.data ? parseBusinessData(s.data) : null;
+      return { ...staticInfo, ...(dynamicData || {}) };
+    };
+
     const sorted = [...filtered].sort((a, b) => {
       let valueA: any = '';
       let valueB: any = '';
@@ -1044,31 +1050,61 @@ export default function WorkerStatus() {
           valueB = (b.status || '').toLowerCase();
           break;
         case 'response_time':
-          valueA = a.response_time || 0;
-          valueB = b.response_time || 0;
+          valueA = a.response_time ?? 0;
+          valueB = b.response_time ?? 0;
+          break;
+        case 'status_code':
+          valueA = a.status_code ?? 0;
+          valueB = b.status_code ?? 0;
+          break;
+        case 'error_msg':
+          valueA = (a.error_msg || '').toLowerCase();
+          valueB = (b.error_msg || '').toLowerCase();
           break;
         case 'checked_at':
           valueA = a.checked_at ? new Date(a.checked_at).getTime() : 0;
           valueB = b.checked_at ? new Date(b.checked_at).getTime() : 0;
           break;
+        case 'position_count':
+        case 'order_count':
+        case 'balance':
+        case 'total_assets':
+        case 'version_number': {
+          const strA = getKeyMetricValue(getMergedDataForSort(a), sortField);
+          const strB = getKeyMetricValue(getMergedDataForSort(b), sortField);
+          const numA = strA === '-' ? NaN : Number(strA);
+          const numB = strB === '-' ? NaN : Number(strB);
+          valueA = !Number.isNaN(numA) ? numA : (strA === '-' ? '' : strA.toLowerCase());
+          valueB = !Number.isNaN(numB) ? numB : (strB === '-' ? '' : strB.toLowerCase());
+          break;
+        }
         default:
           valueA = (a.server_name || '').toLowerCase();
           valueB = (b.server_name || '').toLowerCase();
       }
 
+      if (typeof valueA === 'number' && typeof valueB === 'number') {
+        if (sortOrder === 'asc') {
+          return valueA > valueB ? 1 : valueA < valueB ? -1 : 0;
+        }
+        return valueA < valueB ? 1 : valueA > valueB ? -1 : 0;
+      }
       if (typeof valueA === 'string' && typeof valueB === 'string') {
         if (sortOrder === 'asc') {
           return valueA.localeCompare(valueB, 'zh-CN');
-        } else {
-          return valueB.localeCompare(valueA, 'zh-CN');
         }
-      } else {
-        if (sortOrder === 'asc') {
-          return valueA > valueB ? 1 : valueA < valueB ? -1 : 0;
-        } else {
-          return valueA < valueB ? 1 : valueA > valueB ? -1 : 0;
-        }
+        return valueB.localeCompare(valueA, 'zh-CN');
       }
+      // 数值与空/字符串混合：空或非数值排后（asc）或排前（desc）
+      const emptyA = valueA === '' || valueA === undefined;
+      const emptyB = valueB === '' || valueB === undefined;
+      if (emptyA && emptyB) return 0;
+      if (emptyA) return sortOrder === 'asc' ? 1 : -1;
+      if (emptyB) return sortOrder === 'asc' ? -1 : 1;
+      if (sortOrder === 'asc') {
+        return valueA > valueB ? 1 : valueA < valueB ? -1 : 0;
+      }
+      return valueA < valueB ? 1 : valueA > valueB ? -1 : 0;
     });
 
     return sorted;
@@ -1167,24 +1203,42 @@ export default function WorkerStatus() {
             <div className="loading">加载中...</div>
           ) : (
             <div className="table-container">
-              {/* 搜索框 - 放在表头上方 */}
+              {/* 搜索框与控制按钮 - 放在表头上方 */}
               <div className="search-box-above-table">
-                <input
-                  type="text"
-                  placeholder="全局搜索（所有字段）..."
-                  value={searchKeyword}
-                  onChange={(e) => setSearchKeyword(e.target.value)}
-                  className="search-input"
-                />
-                {searchKeyword && (
+                <div className="search-box-left">
+                  <input
+                    type="text"
+                    placeholder="全局搜索（所有字段）..."
+                    value={searchKeyword}
+                    onChange={(e) => setSearchKeyword(e.target.value)}
+                    className="search-input"
+                  />
+                  {searchKeyword && (
+                    <button
+                      className="clear-search-button"
+                      onClick={() => setSearchKeyword('')}
+                      title="清除搜索"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <div className="search-box-right">
                   <button
-                    className="clear-search-button"
-                    onClick={() => setSearchKeyword('')}
-                    title="清除搜索"
+                    className="toggle-button"
+                    onClick={() => setHideOffline((prev) => !prev)}
+                    title={hideOffline ? '显示所有工作机' : '只显示在线工作机'}
                   >
-                    ✕
+                    {hideOffline ? '只看在线: 开' : '只看在线: 关'}
                   </button>
-                )}
+                  <button
+                    className="toggle-button"
+                    onClick={() => setAutoRefresh((prev) => !prev)}
+                    title={autoRefresh ? '暂停自动刷新' : '恢复自动刷新'}
+                  >
+                    {autoRefresh ? '自动刷新: 开' : '自动刷新: 关'}
+                  </button>
+                </div>
               </div>
               {filteredAndSortedStatuses.length === 0 ? (
                 <div className="empty-message">
@@ -1306,8 +1360,38 @@ export default function WorkerStatus() {
                           {sortField === 'response_time' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
                         </th>
                       )}
-                      {selectedFields.includes('status_code') && <th>HTTP状态码</th>}
-                      {selectedFields.includes('error_msg') && <th>错误信息</th>}
+                      {selectedFields.includes('status_code') && (
+                        <th
+                          className="sortable-header"
+                          onClick={() => {
+                            if (sortField === 'status_code') {
+                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('status_code');
+                              setSortOrder('asc');
+                            }
+                          }}
+                        >
+                          HTTP状态码
+                          {sortField === 'status_code' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                        </th>
+                      )}
+                      {selectedFields.includes('error_msg') && (
+                        <th
+                          className="sortable-header"
+                          onClick={() => {
+                            if (sortField === 'error_msg') {
+                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('error_msg');
+                              setSortOrder('asc');
+                            }
+                          }}
+                        >
+                          错误信息
+                          {sortField === 'error_msg' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                        </th>
+                      )}
                       {selectedFields.includes('checked_at') && (
                         <th
                           className="sortable-header"
@@ -1324,11 +1408,86 @@ export default function WorkerStatus() {
                           {sortField === 'checked_at' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
                         </th>
                       )}
-                      {selectedFields.includes('position_count') && <th className="key-metric-header">持仓数</th>}
-                      {selectedFields.includes('order_count') && <th className="key-metric-header">挂单数</th>}
-                      {selectedFields.includes('balance') && <th className="key-metric-header">USDC余额</th>}
-                      {selectedFields.includes('total_assets') && <th className="key-metric-header">资产总额</th>}
-                      {selectedFields.includes('version_number') && <th className="key-metric-header">程序版本号</th>}
+                      {selectedFields.includes('position_count') && (
+                        <th
+                          className="key-metric-header sortable-header"
+                          onClick={() => {
+                            if (sortField === 'position_count') {
+                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('position_count');
+                              setSortOrder('asc');
+                            }
+                          }}
+                        >
+                          持仓数
+                          {sortField === 'position_count' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                        </th>
+                      )}
+                      {selectedFields.includes('order_count') && (
+                        <th
+                          className="key-metric-header sortable-header"
+                          onClick={() => {
+                            if (sortField === 'order_count') {
+                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('order_count');
+                              setSortOrder('asc');
+                            }
+                          }}
+                        >
+                          挂单数
+                          {sortField === 'order_count' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                        </th>
+                      )}
+                      {selectedFields.includes('balance') && (
+                        <th
+                          className="key-metric-header sortable-header"
+                          onClick={() => {
+                            if (sortField === 'balance') {
+                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('balance');
+                              setSortOrder('asc');
+                            }
+                          }}
+                        >
+                          USDC余额
+                          {sortField === 'balance' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                        </th>
+                      )}
+                      {selectedFields.includes('total_assets') && (
+                        <th
+                          className="key-metric-header sortable-header"
+                          onClick={() => {
+                            if (sortField === 'total_assets') {
+                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('total_assets');
+                              setSortOrder('asc');
+                            }
+                          }}
+                        >
+                          资产总额
+                          {sortField === 'total_assets' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                        </th>
+                      )}
+                      {selectedFields.includes('version_number') && (
+                        <th
+                          className="key-metric-header sortable-header"
+                          onClick={() => {
+                            if (sortField === 'version_number') {
+                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('version_number');
+                              setSortOrder('asc');
+                            }
+                          }}
+                        >
+                          程序版本号
+                          {sortField === 'version_number' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                        </th>
+                      )}
                       <th className="action-header">
                         <Space>
                           <span>操作</span>
