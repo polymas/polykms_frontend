@@ -16,6 +16,7 @@ export default function WorkerStatus() {
   const [error, setError] = useState<string>('');
   const [selectedFields, setSelectedFields] = useState<string[]>([
     'ip',
+    'key_name',
     'proxy_address',
     'status',
     'response_time',
@@ -76,6 +77,7 @@ export default function WorkerStatus() {
   // 可选的字段列表
   const availableFields = [
     { key: 'ip', label: 'IP地址' },
+    { key: 'key_name', label: '密钥名称' },
     { key: 'proxy_address', label: '代理地址' },
     { key: 'wallet_type', label: '钱包类型' },
     { key: 'status', label: '状态' },
@@ -1026,6 +1028,10 @@ export default function WorkerStatus() {
           valueA = (a.ip || '').toLowerCase();
           valueB = (b.ip || '').toLowerCase();
           break;
+        case 'key_name':
+          valueA = (a.key_name || '').toLowerCase();
+          valueB = (b.key_name || '').toLowerCase();
+          break;
         case 'proxy_address':
           valueA = (a.proxy_address || '').toLowerCase();
           valueB = (b.proxy_address || '').toLowerCase();
@@ -1255,6 +1261,22 @@ export default function WorkerStatus() {
                         >
                           IP地址
                           {sortField === 'ip' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                        </th>
+                      )}
+                      {selectedFields.includes('key_name') && (
+                        <th
+                          className="sortable-header"
+                          onClick={() => {
+                            if (sortField === 'key_name') {
+                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('key_name');
+                              setSortOrder('asc');
+                            }
+                          }}
+                        >
+                          密钥名称
+                          {sortField === 'key_name' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
                         </th>
                       )}
                       {selectedFields.includes('proxy_address') && (
@@ -1509,6 +1531,11 @@ export default function WorkerStatus() {
                         <React.Fragment key={status.ip || status.id}>
                           <tr>
                             {selectedFields.includes('ip') && <td>{status.ip}</td>}
+                            {selectedFields.includes('key_name') && (
+                              <td>
+                                {status.key_name ? <Tag color="blue">{status.key_name}</Tag> : <span style={{ color: '#999' }}>-</span>}
+                              </td>
+                            )}
                             {selectedFields.includes('proxy_address') && (
                               <td>
                                 {status.proxy_address ? (
