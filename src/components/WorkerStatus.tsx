@@ -16,7 +16,6 @@ export default function WorkerStatus() {
   const [error, setError] = useState<string>('');
   const [selectedFields, setSelectedFields] = useState<string[]>([
     'ip',
-    'server_name',
     'proxy_address',
     'status',
     'response_time',
@@ -33,7 +32,7 @@ export default function WorkerStatus() {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set()); // 展开的行ID
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [searchKeyword, setSearchKeyword] = useState<string>(''); // 搜索关键词
-  const [sortField, setSortField] = useState<string>('server_name'); // 排序字段
+  const [sortField, setSortField] = useState<string>('ip'); // 排序字段
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc'); // 排序顺序
   const [hideOffline, setHideOffline] = useState<boolean>(false); // 隐藏离线机器，默认不隐藏
   const [selectedFile, setSelectedFile] = useState<File | null>(null); // 选定的文件
@@ -77,7 +76,6 @@ export default function WorkerStatus() {
   // 可选的字段列表
   const availableFields = [
     { key: 'ip', label: 'IP地址' },
-    { key: 'server_name', label: '服务器名称' },
     { key: 'proxy_address', label: '代理地址' },
     { key: 'wallet_type', label: '钱包类型' },
     { key: 'status', label: '状态' },
@@ -987,7 +985,6 @@ export default function WorkerStatus() {
         const basicMatch = (
           (status.key_name && status.key_name.toLowerCase().includes(keyword)) ||
           (status.ip && status.ip.toLowerCase().includes(keyword)) ||
-          (status.server_name && status.server_name.toLowerCase().includes(keyword)) ||
           (status.proxy_address && status.proxy_address.toLowerCase().includes(keyword)) ||
           (status.wallet_type && status.wallet_type.toLowerCase().includes(keyword)) ||
           (status.status && status.status.toLowerCase().includes(keyword)) ||
@@ -1028,10 +1025,6 @@ export default function WorkerStatus() {
         case 'ip':
           valueA = (a.ip || '').toLowerCase();
           valueB = (b.ip || '').toLowerCase();
-          break;
-        case 'server_name':
-          valueA = (a.server_name || '').toLowerCase();
-          valueB = (b.server_name || '').toLowerCase();
           break;
         case 'proxy_address':
           valueA = (a.proxy_address || '').toLowerCase();
@@ -1079,8 +1072,8 @@ export default function WorkerStatus() {
           break;
         }
         default:
-          valueA = (a.server_name || '').toLowerCase();
-          valueB = (b.server_name || '').toLowerCase();
+          valueA = (a.ip || '').toLowerCase();
+          valueB = (b.ip || '').toLowerCase();
       }
 
       if (typeof valueA === 'number' && typeof valueB === 'number') {
@@ -1262,22 +1255,6 @@ export default function WorkerStatus() {
                         >
                           IP地址
                           {sortField === 'ip' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
-                        </th>
-                      )}
-                      {selectedFields.includes('server_name') && (
-                        <th
-                          className="sortable-header"
-                          onClick={() => {
-                            if (sortField === 'server_name') {
-                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-                            } else {
-                              setSortField('server_name');
-                              setSortOrder('asc');
-                            }
-                          }}
-                        >
-                          服务器名称
-                          {sortField === 'server_name' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
                         </th>
                       )}
                       {selectedFields.includes('proxy_address') && (
@@ -1532,7 +1509,6 @@ export default function WorkerStatus() {
                         <React.Fragment key={status.ip || status.id}>
                           <tr>
                             {selectedFields.includes('ip') && <td>{status.ip}</td>}
-                            {selectedFields.includes('server_name') && <td>{status.server_name || '-'}</td>}
                             {selectedFields.includes('proxy_address') && (
                               <td>
                                 {status.proxy_address ? (

@@ -142,11 +142,9 @@ export interface LoginResponse {
 export interface Secret {
   id: number;
   user_id: number;
-  group_id?: number; // 分组ID，0 表示未分组
   key_name: string;
   value?: string; // 加密后的密文（base64），兼容旧字段
   active?: boolean; // 是否激活
-  server_name?: string; // 服务器名称
   ip?: string; // IP地址
   proxy_address?: string; // 代理地址
   base_address?: string; // 基础地址
@@ -162,10 +160,8 @@ export interface Secret {
 
 export interface StoreSecretRequest {
   key_name: string;
-  group_id?: number; // 分组ID，0 表示未分组
   value?: string; // 兼容旧字段，如果设置了新字段则忽略
   active?: boolean; // 是否激活
-  server_name?: string; // 服务器名称
   ip?: string; // IP地址
   proxy_address?: string; // 代理地址
   base_address?: string; // 基础地址
@@ -256,7 +252,6 @@ export interface WorkerStatus {
   secret_id: number;
   key_name: string;
   ip: string;
-  server_name: string;
   proxy_address?: string; // 代理地址
   wallet_type?: string; // 钱包类型
   status: 'online' | 'offline' | 'error';
@@ -440,7 +435,7 @@ export const workersAPI = {
 // 客户看板：快照与聚合
 export interface GroupDailySnapshotItem {
   id: number;
-  group_id: number;
+  group_key: string;
   snapshot_date: string;
   total_assets: number;
   total_balance: number;
@@ -457,7 +452,7 @@ export interface ListDailySnapshotsResponse {
 }
 
 export interface GroupAggregateResponse {
-  group_id: number;
+  group_key: string;
   total_assets: number;
   total_balance: number;
   position_count: number;
@@ -677,11 +672,11 @@ export const activityAPI = {
 export const dashboardAPI = {
   /** 查询某分组在时间范围内的每日快照列表 */
   listDailySnapshots: async (
-    groupId: number,
+    groupKey: string,
     from?: string,
     to?: string
   ): Promise<ListDailySnapshotsResponse> => {
-    const params: Record<string, string> = { group_id: String(groupId) };
+    const params: Record<string, string> = { group_key: String(groupKey) };
     if (from) params.from = from;
     if (to) params.to = to;
     const response = await api.get<ListDailySnapshotsResponse>('/api/v1/snapshots/daily', { params });
@@ -689,9 +684,9 @@ export const dashboardAPI = {
   },
 
   /** 查询某分组的当前聚合数据（从工作机状态实时聚合） */
-  getGroupAggregate: async (groupId: number): Promise<GroupAggregateResponse> => {
+  getGroupAggregate: async (groupKey: string): Promise<GroupAggregateResponse> => {
     const response = await api.get<GroupAggregateResponse>('/api/v1/snapshots/aggregate', {
-      params: { group_id: groupId },
+      params: { group_key: groupKey },
     });
     return response.data;
   },

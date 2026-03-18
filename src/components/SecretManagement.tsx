@@ -113,7 +113,6 @@ export default function SecretManagement() {
     const keyName = e.target.value;
     form.setFieldsValue({
       key_name: keyName,
-      server_name: keyName, // 密钥名称和服务器名称保持一致
     });
   };
 
@@ -233,9 +232,7 @@ export default function SecretManagement() {
       // 构建上传数据（清理输入，IP地址不传，由后端自动填写）
       const secretToUpload: StoreSecretRequest = {
         key_name: sanitizeInput(values.key_name),
-        group_id: typeof values.group_id === 'number' ? values.group_id : (Number(values.group_id) || 0),
         active: true, // 默认激活
-        server_name: sanitizeInput(values.key_name), // 服务器名称和密钥名称一致
         ip: '', // IP地址不传，后端根据请求IP自动填写
         proxy_address: proxyAddress || '', // 使用计算出的代理地址
         base_address: walletAddress || '', // 使用计算出的钱包地址作为基础地址
@@ -301,19 +298,6 @@ export default function SecretManagement() {
 
   // 表格列定义
   const columns = [
-    {
-      title: '服务器名称',
-      dataIndex: 'server_name',
-      key: 'server_name',
-      render: (text: string) => text || '-',
-    },
-    {
-      title: '分组ID',
-      dataIndex: 'group_id',
-      key: 'group_id',
-      width: 90,
-      render: (val: number | undefined) => (val != null && val !== 0 ? String(val) : '未分组'),
-    },
     {
       title: 'IP地址',
       dataIndex: 'ip',
@@ -430,7 +414,6 @@ export default function SecretManagement() {
               signature_type: 2, // 默认使用Safe类型（私钥钱包）
               wallet_type: 'safe',
               tail_order_share: 100, // ExtraInfo 子项，默认 100
-              group_id: 0, // 分组ID，0 表示未分组
             }}
           >
             <Row gutter={24}>
@@ -456,13 +439,6 @@ export default function SecretManagement() {
                     placeholder="例如: server_001"
                     onChange={handleKeyNameChange}
                   />
-                </Form.Item>
-                <Form.Item
-                  label="分组ID"
-                  name="group_id"
-                  tooltip="用于按分组聚合每日资产快照，0 表示未分组"
-                >
-                  <InputNumber min={0} step={1} placeholder="0（未分组）" style={{ width: '100%' }} />
                 </Form.Item>
                 <Form.Item
                   label={
@@ -547,9 +523,6 @@ export default function SecretManagement() {
                   </div>
                 )}
                 <Form.Item name="wallet_type" hidden>
-                  <Input />
-                </Form.Item>
-                <Form.Item name="server_name" hidden>
                   <Input />
                 </Form.Item>
               </Col>
