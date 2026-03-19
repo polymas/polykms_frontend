@@ -503,14 +503,16 @@ export function parseDailyVolume(d: Record<string, unknown>): number {
 
 /** poly_activity 每日统计请求体（批量接口） */
 export interface ActivityDailyStatsRequest {
-  wallets: string[];
+  secret_ids?: number[];
+  wallets?: string[];
   from_date: string;
   to_date: string;
 }
 
 /** 活动记录明细请求（时间区间内买入/卖出等） */
 export interface ActivityRecordsRequest {
-  wallets: string[];
+  secret_ids?: number[];
+  wallets?: string[];
   from_date: string;
   to_date: string;
   types?: string[];
@@ -623,20 +625,20 @@ export async function pollDailyStatsResult(progressUrl: string): Promise<Activit
 /** 每日交易额/利润 API（走 polykms 后端 wallet_daily_stats，需 JWT） */
 export const activityAPI = {
   /**
-   * 批量获取指定钱包在日期范围内的每日交易额与利润
-   * POST /api/v1/activity/daily-stats Body: { "wallets": ["0x...", ...], "from_date": "YYYY-MM-DD", "to_date": "YYYY-MM-DD" }
+   * 批量获取指定密钥在日期范围内的每日交易额与利润
+   * POST /api/v1/activity/daily-stats Body: { "secret_ids": [1,2,...], "from_date": "YYYY-MM-DD", "to_date": "YYYY-MM-DD" }
    */
   getDailyStats: async (
-    wallets: string[],
+    secretIds: number[],
     fromDate: string,
     toDate: string
   ): Promise<ActivityDailyStatsResponse> => {
-    if (wallets.length === 0) {
+    if (secretIds.length === 0) {
       return { data: [] };
     }
-    const addressList = wallets.map((a) => (a || '').toLowerCase()).filter(Boolean);
+    const uniqSecretIds = [...new Set(secretIds.filter((id) => Number.isInteger(id) && id > 0))];
     const body: ActivityDailyStatsRequest = {
-      wallets: addressList,
+      secret_ids: uniqSecretIds,
       from_date: fromDate,
       to_date: toDate,
     };
@@ -645,19 +647,20 @@ export const activityAPI = {
   },
 
   /**
-   * 获取指定钱包在时间区间内的活动记录明细（买入、卖出、赎回等），支持分页与 type 过滤
+   * 获取指定密钥在时间区间内的活动记录明细（买入、卖出、赎回等），支持分页与 type 过滤
    * POST /api/v1/activity/records Body: ActivityRecordsRequest
    */
   getRecords: async (params: {
-    wallets: string[];
+    secretIds: number[];
     fromDate: string;
     toDate: string;
     types?: string[];
     page?: number;
     pageSize?: number;
   }): Promise<ActivityRecordsResponse> => {
+    const uniqSecretIds = [...new Set(params.secretIds.filter((id) => Number.isInteger(id) && id > 0))];
     const body: ActivityRecordsRequest = {
-      wallets: params.wallets.map((a) => (a || '').toLowerCase()).filter(Boolean),
+      secret_ids: uniqSecretIds,
       from_date: params.fromDate,
       to_date: params.toDate,
       types: params.types,

@@ -238,22 +238,22 @@ export default function CustomerDashboard() {
     return `${d.getFullYear()}年${d.getMonth() + 1}月`;
   }
 
-  /** 当前选中的分组对应的钱包地址列表（用于请求当日平仓） */
-  const selectedWalletAddresses = (() => {
+  /** 当前选中的分组对应的密钥 ID 列表（用于请求当日平仓） */
+  const selectedSecretIds = (() => {
     if (selectedGroupForChart == null) {
-      const list: string[] = [];
+      const list: number[] = [];
       groupKeys.forEach((k) => {
         (groupsByKey[k] || []).forEach((s) => {
-          if (s.proxy_address) list.push(s.proxy_address);
+          if (s.id) list.push(s.id);
         });
       });
       return [...new Set(list)];
     }
-    return (groupsByKey[selectedGroupForChart] || []).map((s) => s.proxy_address).filter(Boolean) as string[];
+    return (groupsByKey[selectedGroupForChart] || []).map((s) => s.id).filter(Boolean) as number[];
   })();
 
   useEffect(() => {
-    if (!selectedDailyDate || selectedWalletAddresses.length === 0) {
+    if (!selectedDailyDate || selectedSecretIds.length === 0) {
       setDayRecords([]);
       return;
     }
@@ -265,7 +265,7 @@ export default function CustomerDashboard() {
       let page = 1;
       for (;;) {
         const res = await activityAPI.getRecords({
-          wallets: selectedWalletAddresses,
+          secretIds: selectedSecretIds,
           fromDate: selectedDailyDate,
           toDate: selectedDailyDate,
           types: ['SELL', 'REDEEM'],
@@ -291,7 +291,7 @@ export default function CustomerDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [selectedDailyDate, selectedWalletAddresses.join(',')]);
+  }, [selectedDailyDate, selectedSecretIds.join(',')]);
 
   /** 按分组 key 拉取聚合数据（使用 aggregate-by-secrets；按 key 分组无历史快照） */
   const loadData = async (keys: string[], byKey: Record<string, Secret[]>) => {
@@ -328,16 +328,16 @@ export default function CustomerDashboard() {
         setGroupsByKey(byKey);
         await loadData(keys, byKey);
 
-        // 按 key 分组：仅对 key_name 以字母开头的密钥，用 proxy_address 请求每日利润并归到对应 groupKey
-        const addressToGroupKey = new Map<string, string>();
+        // 按 key 分组：仅对 key_name 以字母开头的密钥，用 secret_id 请求每日利润并归到对应 groupKey
+        const secretIdToGroupKey = new Map<number, string>();
         for (const s of secrets) {
           const key = getGroupKeyFromKeyName(s.key_name || '');
-          if (key !== null && s.proxy_address) {
-            addressToGroupKey.set((s.proxy_address).toLowerCase(), key);
+          if (key !== null && s.id) {
+            secretIdToGroupKey.set(s.id, key);
           }
         }
-        const addresses = [...new Set(addressToGroupKey.keys())];
-        if (addresses.length > 0) {
+        const secretIds = [...new Set(secretIdToGroupKey.keys())];
+        if (secretIds.length > 0) {
           setDailyProfitLoading(true);
           try {
             const toDate = new Date();
@@ -345,14 +345,21 @@ export default function CustomerDashboard() {
             fromDate.setDate(fromDate.getDate() - 90);
             const fromStr = fromDate.toISOString().slice(0, 10);
             const toStr = toDate.toISOString().slice(0, 10);
-            const statsRes = await activityAPI.getDailyStats(addresses, fromStr, toStr);
+            const statsRes = await activityAPI.getDailyStats(secretIds, fromStr, toStr);
             if (cancelled) return;
             const byDate = new Map<string, number>();
             const byDateVolume = new Map<string, number>();
             const byGroupProfit = new Map<string, Map<string, number>>();
             const byGroupVolume = new Map<string, Map<string, number>>();
+            const walletToSecretID = new Map<string, number>();
+            for (const s of secrets) {
+              if (s.id && s.proxy_address) {
+                walletToSecretID.set((s.proxy_address || '').toLowerCase(), s.id);
+              }
+            }
             for (const w of statsRes.data || []) {
-              const groupKey = addressToGroupKey.get((w.wallet || '').toLowerCase());
+              const sid = walletToSecretID.get((w.wallet || '').toLowerCase());
+              const groupKey = sid ? secretIdToGroupKey.get(sid) : undefined;
               for (const d of w.daily || []) {
                 const row = d as unknown as Record<string, unknown>;
                 const date = row?.date as string | undefined;
