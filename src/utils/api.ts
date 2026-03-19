@@ -504,7 +504,6 @@ export function parseDailyVolume(d: Record<string, unknown>): number {
 /** poly_activity 每日统计请求体（批量接口） */
 export interface ActivityDailyStatsRequest {
   secret_ids?: number[];
-  wallets?: string[];
   from_date: string;
   to_date: string;
 }
@@ -512,7 +511,6 @@ export interface ActivityDailyStatsRequest {
 /** 活动记录明细请求（时间区间内买入/卖出等） */
 export interface ActivityRecordsRequest {
   secret_ids?: number[];
-  wallets?: string[];
   from_date: string;
   to_date: string;
   types?: string[];
