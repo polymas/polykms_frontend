@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Button, Space, Card, Descriptions, Tag, Typography, Tooltip } from 'antd';
-import { ReloadOutlined, CopyOutlined, UploadOutlined, WalletOutlined, CheckCircleOutlined, DownOutlined, RightOutlined } from '@ant-design/icons';
+import { ReloadOutlined, CopyOutlined, UploadOutlined, WalletOutlined, CheckCircleOutlined, DownOutlined, RightOutlined, DownloadOutlined } from '@ant-design/icons';
 import { workersAPI, ordersAPI, WorkerStatus as WorkerStatusType } from '../utils/api';
 import { isProductionEnvironment } from '../utils/env';
 import { secureLog } from '../utils/security';
@@ -23,6 +23,7 @@ export default function WorkerStatus() {
     'checked_at',
     'position_count',
     'order_count',
+    'tail_order_share',
     'balance',
     'total_assets',
     'version_number',
@@ -88,6 +89,7 @@ export default function WorkerStatus() {
     { key: 'created_at', label: '创建时间' },
     { key: 'position_count', label: '持仓数' },
     { key: 'order_count', label: '挂单数' },
+    { key: 'tail_order_share', label: 'Tail下单份额' },
     { key: 'balance', label: 'USDC余额' },
     { key: 'total_assets', label: '资产总额' },
     { key: 'version_number', label: '程序版本号' },
@@ -662,6 +664,30 @@ export default function WorkerStatus() {
       )) {
         return String(value);
       }
+      if (fieldName === 'tail_order_share') {
+        const lowerKey = key.toLowerCase();
+        if (lowerKey === 'tail_order_share' || lowerKey === 'tailordershare' ||
+          /tail.*order.*share/i.test(key)) {
+          return String(value);
+        }
+        // 兼容 extra_info 为对象或 JSON 字符串的场景
+        if (lowerKey === 'extra_info' || lowerKey === 'extrainfo') {
+          let extraInfoObj: any = value;
+          if (typeof value === 'string') {
+            try {
+              extraInfoObj = JSON.parse(value);
+            } catch {
+              extraInfoObj = null;
+            }
+          }
+          if (extraInfoObj && typeof extraInfoObj === 'object') {
+            const tail = extraInfoObj.tail_order_share ?? extraInfoObj.tailOrderShare;
+            if (tail !== undefined && tail !== null && tail !== '') {
+              return String(tail);
+            }
+          }
+        }
+      }
       if (fieldName === 'balance') {
         // 优先精确匹配 usdc_balance 字段（不区分大小写）
         const lowerKey = key.toLowerCase();
@@ -1019,6 +1045,34 @@ export default function WorkerStatus() {
       return { ...staticInfo, ...(dynamicData || {}) };
     };
 
+    // 按字母部分优先、数字部分次级进行 key_name 排序（自然排序）
+    const compareKeyName = (nameA: string, nameB: string): number => {
+      const extractParts = (value: string) => {
+        const normalized = value.toLowerCase().trim();
+        const alphaPart = normalized.replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
+        const numberParts = (normalized.match(/\d+/g) || []).map(Number);
+        return { alphaPart, numberParts };
+      };
+
+      const partsA = extractParts(nameA);
+      const partsB = extractParts(nameB);
+
+      const alphaCompare = partsA.alphaPart.localeCompare(partsB.alphaPart, 'zh-CN');
+      if (alphaCompare !== 0) return alphaCompare;
+
+      const maxLen = Math.max(partsA.numberParts.length, partsB.numberParts.length);
+      for (let i = 0; i < maxLen; i += 1) {
+        const numA = partsA.numberParts[i];
+        const numB = partsB.numberParts[i];
+        if (numA === undefined && numB === undefined) break;
+        if (numA === undefined) return -1;
+        if (numB === undefined) return 1;
+        if (numA !== numB) return numA - numB;
+      }
+
+      return nameA.toLowerCase().localeCompare(nameB.toLowerCase(), 'zh-CN');
+    };
+
     const sorted = [...filtered].sort((a, b) => {
       let valueA: any = '';
       let valueB: any = '';
@@ -1029,9 +1083,11 @@ export default function WorkerStatus() {
           valueB = (b.ip || '').toLowerCase();
           break;
         case 'key_name':
-          valueA = (a.key_name || '').toLowerCase();
-          valueB = (b.key_name || '').toLowerCase();
-          break;
+          valueA = a.key_name || '';
+          valueB = b.key_name || '';
+          return sortOrder === 'asc'
+            ? compareKeyName(valueA, valueB)
+            : compareKeyName(valueB, valueA);
         case 'proxy_address':
           valueA = (a.proxy_address || '').toLowerCase();
           valueB = (b.proxy_address || '').toLowerCase();
@@ -1066,6 +1122,7 @@ export default function WorkerStatus() {
           break;
         case 'position_count':
         case 'order_count':
+        case 'tail_order_share':
         case 'balance':
         case 'total_assets':
         case 'version_number': {
@@ -1155,6 +1212,90 @@ export default function WorkerStatus() {
     };
   }, [filteredAndSortedStatuses]);
 
+  // 导出当前过滤后的表格数据（CSV）
+  const handleExportFilteredData = () => {
+    if (filteredAndSortedStatuses.length === 0) {
+      showToast('当前没有可导出的数据', 'error');
+      return;
+    }
+
+    const headers = selectedFields
+      .map((fieldKey) => availableFields.find((f) => f.key === fieldKey))
+      .filter((field): field is { key: string; label: string } => !!field);
+
+    const getFieldValueForExport = (status: WorkerStatusType, fieldKey: string): string => {
+      const staticInfo = parseInfoData(status.info_data) || {};
+      const dynamicData = status.data ? parseBusinessData(status.data) : null;
+      const mergedData = {
+        ...staticInfo,
+        ...(dynamicData || {}),
+      };
+
+      switch (fieldKey) {
+        case 'ip':
+          return status.ip || '-';
+        case 'key_name':
+          return status.key_name || '-';
+        case 'proxy_address':
+          return status.proxy_address || '-';
+        case 'wallet_type':
+          return status.wallet_type || '-';
+        case 'status':
+          return isWorkerOnline(status) ? '在线' : '离线';
+        case 'response_time':
+          return status.response_time !== undefined ? `${status.response_time}` : '-';
+        case 'status_code':
+          return status.status_code !== undefined ? `${status.status_code}` : '-';
+        case 'error_msg':
+          return status.error_msg || '-';
+        case 'checked_at':
+          return status.checked_at ? formatTime(status.checked_at) : '-';
+        case 'created_at':
+          return status.created_at ? formatTime(status.created_at) : '-';
+        case 'position_count':
+        case 'order_count':
+        case 'tail_order_share':
+        case 'balance':
+        case 'total_assets':
+          return getKeyMetricValue(mergedData, fieldKey);
+        case 'version_number':
+          return getKeyMetricValue(staticInfo, 'version_number');
+        default:
+          return '-';
+      }
+    };
+
+    const escapeCsvValue = (value: string): string => {
+      const normalized = value ?? '';
+      if (/[",\n]/.test(normalized)) {
+        return `"${normalized.replace(/"/g, '""')}"`;
+      }
+      return normalized;
+    };
+
+    const csvHeaderLine = headers.map((h) => escapeCsvValue(h.label)).join(',');
+    const csvDataLines = filteredAndSortedStatuses.map((status) => {
+      const values = headers.map((h) => getFieldValueForExport(status, h.key));
+      return values.map((v) => escapeCsvValue(v)).join(',');
+    });
+    const csvContent = [csvHeaderLine, ...csvDataLines].join('\n');
+
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+    link.href = url;
+    link.download = `worker_status_filtered_${timestamp}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+
+    showToast(`导出成功，共 ${filteredAndSortedStatuses.length} 条数据`, 'success');
+  };
+
   return (
     <div className="worker-status-container">
       {/* 统计信息 - 横向布局放在最上面 */}
@@ -1223,6 +1364,13 @@ export default function WorkerStatus() {
                   )}
                 </div>
                 <div className="search-box-right">
+                  <button
+                    className="toggle-button"
+                    onClick={handleExportFilteredData}
+                    title="导出当前过滤结果"
+                  >
+                    <DownloadOutlined /> 导出过滤结果
+                  </button>
                   <button
                     className="toggle-button"
                     onClick={() => setHideOffline((prev) => !prev)}
@@ -1439,6 +1587,22 @@ export default function WorkerStatus() {
                           {sortField === 'order_count' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
                         </th>
                       )}
+                      {selectedFields.includes('tail_order_share') && (
+                        <th
+                          className="key-metric-header sortable-header"
+                          onClick={() => {
+                            if (sortField === 'tail_order_share') {
+                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('tail_order_share');
+                              setSortOrder('asc');
+                            }
+                          }}
+                        >
+                          Tail下单份额
+                          {sortField === 'tail_order_share' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                        </th>
+                      )}
                       {selectedFields.includes('balance') && (
                         <th
                           className="key-metric-header sortable-header"
@@ -1627,6 +1791,11 @@ export default function WorkerStatus() {
                             {selectedFields.includes('order_count') && (
                               <td className="key-metric-cell">
                                 {getKeyMetricValue(mergedData, 'order_count')}
+                              </td>
+                            )}
+                            {selectedFields.includes('tail_order_share') && (
+                              <td className="key-metric-cell">
+                                {getKeyMetricValue(mergedData, 'tail_order_share')}
                               </td>
                             )}
                             {selectedFields.includes('balance') && (
