@@ -205,6 +205,20 @@ export interface ListSecretsResponse {
   secrets: Omit<Secret, 'value'>[];
 }
 
+export interface UpdateSecretMetaRequest {
+  key_name: string;
+  tail_order_share: number;
+  reason?: string;
+}
+
+export interface UpdateSecretMetaResponse {
+  id: number;
+  key_name: string;
+  tail_order_share: number;
+  updated_at: string;
+  message: string;
+}
+
 // API函数
 export const authAPI = {
   /**
@@ -358,6 +372,14 @@ export const secretsAPI = {
    */
   listSecrets: async (): Promise<ListSecretsResponse> => {
     const response = await api.get<ListSecretsResponse>('/api/v1/secrets');
+    return response.data;
+  },
+
+  /**
+   * 更新密钥元信息（仅管理员）：key_name + tail_order_share
+   */
+  updateSecretMeta: async (id: number, data: UpdateSecretMetaRequest): Promise<UpdateSecretMetaResponse> => {
+    const response = await api.patch<UpdateSecretMetaResponse>(`/api/v1/secrets/${id}/meta`, data);
     return response.data;
   },
 };

@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Card,
   Form,
   Input,
   InputNumber,
   Button,
+  Modal,
   Radio,
   Space,
   Row,
@@ -32,6 +33,7 @@ const { Text } = Typography;
 
 export default function SecretManagement() {
   const [form] = Form.useForm();
+  const [editForm] = Form.useForm();
   const [secrets, setSecrets] = useState<ListSecretsResponse['secrets']>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -41,6 +43,11 @@ export default function SecretManagement() {
   // 钱包地址计算相关状态
   const [walletAddress, setWalletAddress] = useState<string>('');
   const [proxyAddress, setProxyAddress] = useState<string>('');
+  const [searchKeyword, setSearchKeyword] = useState<string>('');
+  const [editingSecret, setEditingSecret] = useState<ListSecretsResponse['secrets'][number] | null>(null);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const canEditSecrets = canListSecrets;
 
   // 加载密钥列表（admin 全量，customer 本人；data_entry 不展示列表）
   const loadSecrets = async () => {
@@ -296,13 +303,93 @@ export default function SecretManagement() {
     return address;
   };
 
+  // 从 extra_info 解析 tail_order_share，默认 100
+  const parseTailOrderShare = (extraInfo?: string): number => {
+    if (!extraInfo) return 100;
+    try {
+      const obj = JSON.parse(extraInfo);
+      const tail = obj?.tail_order_share ?? obj?.tailOrderShare;
+      const n = Number(tail);
+      return Number.isFinite(n) ? Math.round(n) : 100;
+    } catch {
+      return 100;
+    }
+  };
+
+  // 打开编辑弹窗
+  const openEditModal = (record: ListSecretsResponse['secrets'][number]) => {
+    setEditingSecret(record);
+    editForm.setFieldsValue({
+      key_name: record.key_name || '',
+      tail_order_share: parseTailOrderShare(record.extra_info),
+      reason: '',
+    });
+    setEditModalVisible(true);
+  };
+
+  // 提交编辑
+  const handleSubmitEdit = async () => {
+    if (!editingSecret) return;
+    try {
+      const values = await editForm.validateFields();
+      setEditSubmitting(true);
+      await secretsAPI.updateSecretMeta(editingSecret.id, {
+        key_name: sanitizeInput(values.key_name),
+        tail_order_share: Math.round(Number(values.tail_order_share)),
+        reason: values.reason ? sanitizeInput(values.reason) : undefined,
+      });
+      message.success('密钥信息更新成功');
+      setEditModalVisible(false);
+      setEditingSecret(null);
+      await loadSecrets();
+    } catch (err: any) {
+      if (err?.errorFields) {
+        return;
+      }
+      message.error(err?.response?.data?.error || err?.message || '更新密钥信息失败');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  // 列表搜索（按 key_name/ip/base/proxy/wallet_type）
+  const filteredSecrets = useMemo(() => {
+    const keyword = searchKeyword.trim().toLowerCase();
+    if (!keyword) return secrets;
+
+    return secrets.filter((item: any) => {
+      const keyName = String(item?.key_name || '').toLowerCase();
+      const ip = String(item?.ip || '').toLowerCase();
+      const baseAddress = String(item?.base_address || '').toLowerCase();
+      const proxyAddress = String(item?.proxy_address || '').toLowerCase();
+      const walletType = String(item?.wallet_type || '').toLowerCase();
+      return (
+        keyName.includes(keyword) ||
+        ip.includes(keyword) ||
+        baseAddress.includes(keyword) ||
+        proxyAddress.includes(keyword) ||
+        walletType.includes(keyword)
+      );
+    });
+  }, [secrets, searchKeyword]);
+
   // 表格列定义
   const columns = [
+    {
+      title: '密钥名称',
+      dataIndex: 'key_name',
+      key: 'key_name',
+      render: (text: string) => text || '-',
+      sorter: (a: any, b: any) => String(a.key_name || '').localeCompare(String(b.key_name || ''), 'zh-CN'),
+      sortDirections: ['ascend', 'descend'] as ('ascend' | 'descend')[],
+    },
     {
       title: 'IP地址',
       dataIndex: 'ip',
       key: 'ip',
       render: (text: string) => text || '-',
+      sorter: (a: any, b: any) => String(a.ip || '').localeCompare(String(b.ip || '')),
+      sortDirections: ['ascend', 'descend'] as ('ascend' | 'descend')[],
     },
     {
       title: '基础地址',
@@ -385,6 +472,8 @@ export default function SecretManagement() {
       dataIndex: 'wallet_type',
       key: 'wallet_type',
       render: (text: string) => text || '-',
+      sorter: (a: any, b: any) => String(a.wallet_type || '').localeCompare(String(b.wallet_type || '')),
+      sortDirections: ['ascend', 'descend'] as ('ascend' | 'descend')[],
     },
     {
       title: '创建时间',
@@ -399,6 +488,18 @@ export default function SecretManagement() {
         return dateB - dateA; // 倒序：最新的在前
       },
     },
+    ...(canEditSecrets
+      ? [{
+        title: '操作',
+        key: 'actions',
+        width: 120,
+        render: (_: any, record: any) => (
+          <Button type="link" onClick={() => openEditModal(record)}>
+            编辑
+          </Button>
+        ),
+      }]
+      : []),
   ];
 
   return (
@@ -565,18 +666,18 @@ export default function SecretManagement() {
                   />
                 </Form.Item>
                 <Form.Item
-                  label="ExtraInfo - tail_order_share"
+                  label="ExtraInfo - 尾盘下注份额"
                   name="tail_order_share"
                   rules={[
-                    { required: true, message: '请输入 tail_order_share' },
+                    { required: true, message: '请输入尾盘下注份额' },
                     {
                       type: 'number',
                       min: 0,
                       max: 1000,
-                      message: 'tail_order_share 需为 0-1000 的整数',
+                      message: '尾盘下注份额需为 0-1000 的整数',
                     },
                   ]}
-                  tooltip="尾单分成比例，0-1000 的整数，默认 100"
+                  tooltip="尾盘下注份额，0-1000 的整数，默认 100"
                 >
                   <InputNumber
                     min={0}
@@ -619,9 +720,21 @@ export default function SecretManagement() {
               </Button>
             }
           >
+            <Space style={{ marginBottom: 12, width: '100%' }}>
+              <Input
+                allowClear
+                placeholder="搜索密钥名称 / IP / 地址 / 钱包类型"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                style={{ maxWidth: 420 }}
+              />
+              <Text type="secondary">
+                {`共 ${filteredSecrets.length} 条`}
+              </Text>
+            </Space>
             <Table
               columns={columns}
-              dataSource={secrets}
+              dataSource={filteredSecrets}
               rowKey="id"
               loading={loading}
               pagination={{
@@ -630,6 +743,52 @@ export default function SecretManagement() {
                 showTotal: (total) => `共 ${total} 条`,
               }}
             />
+            <Modal
+              title="更新密钥信息"
+              open={editModalVisible}
+              onCancel={() => {
+                setEditModalVisible(false);
+                setEditingSecret(null);
+              }}
+              onOk={handleSubmitEdit}
+              confirmLoading={editSubmitting}
+              okText="保存更新"
+              destroyOnClose
+            >
+              <Form form={editForm} layout="vertical">
+                <Form.Item
+                  label="密钥名称"
+                  name="key_name"
+                  rules={[
+                    { required: true, message: '请输入密钥名称' },
+                    {
+                      validator: (_, value) => {
+                        if (!value) return Promise.resolve();
+                        const validation = validateKeyName(value);
+                        return validation.valid
+                          ? Promise.resolve()
+                          : Promise.reject(new Error(validation.error || '密钥名称格式不正确'));
+                      }
+                    }
+                  ]}
+                >
+                  <Input placeholder="请输入新的密钥名称" maxLength={100} />
+                </Form.Item>
+                <Form.Item
+                  label="尾盘下注份额"
+                  name="tail_order_share"
+                  rules={[
+                    { required: true, message: '请输入尾盘下注份额' },
+                    { type: 'number', min: 0, max: 1000, message: '尾盘下注份额需为 0-1000 的整数' },
+                  ]}
+                >
+                  <InputNumber min={0} max={1000} step={1} precision={0} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item label="变更原因（可选）" name="reason">
+                  <Input.TextArea rows={3} maxLength={500} placeholder="用于审计日志，建议填写本次修改原因" />
+                </Form.Item>
+              </Form>
+            </Modal>
           </Card>
         )}
       </Space>
