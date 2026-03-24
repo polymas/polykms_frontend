@@ -1,7 +1,14 @@
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Button } from 'antd';
-import { KeyOutlined, MonitorOutlined, LogoutOutlined, DashboardOutlined } from '@ant-design/icons';
+import { Layout, Menu, Button, Typography, Grid } from 'antd';
+import {
+  KeyOutlined,
+  MonitorOutlined,
+  LogoutOutlined,
+  DashboardOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+} from '@ant-design/icons';
 import Login from './components/Login';
 import Register from './components/Register';
 import SecretManagement from './components/SecretManagement';
@@ -11,11 +18,11 @@ import EnvironmentBanner from './components/EnvironmentBanner';
 import { getRole, type Role } from './utils/api';
 import './App.css';
 
-const { Header, Content } = Layout;
+const { Sider, Header, Content } = Layout;
+const { Text } = Typography;
 
 type AuthMode = 'login' | 'register';
 
-// 受保护的路由组件
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token');
   if (!token) {
@@ -24,7 +31,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// 仅管理员可访问的路由（鉴权以后端 JWT 为准，此处仅做前端重定向）
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token');
   const role = getRole();
@@ -37,7 +43,6 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// 仅客户或管理员可访问的客户看板路由
 function CustomerDashboardRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token');
   const role = getRole();
@@ -50,74 +55,113 @@ function CustomerDashboardRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// 导航栏组件（按 role 显隐：data_entry 仅密钥管理，customer 密钥管理+客户看板，admin 全部）
-function Navigation() {
+/** 侧栏 + 顶栏 + 内容区：玻璃顶栏、可折叠导航 */
+function AppShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const role = getRole();
+  const screens = Grid.useBreakpoint();
+  const [collapsed, setCollapsed] = useState(false);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem('token');
     localStorage.removeItem('username');
     localStorage.removeItem('is_admin');
     localStorage.removeItem('role');
     navigate('/login');
-  };
+  }, [navigate]);
 
-  const allMenuItems: { key: string; icon: React.ReactNode; label: string; roles: Role[] }[] = [
-    { key: '/secrets', icon: <KeyOutlined />, label: '密钥管理', roles: ['data_entry', 'customer', 'admin'] },
-    { key: '/dashboard', icon: <DashboardOutlined />, label: '客户看板', roles: ['customer', 'admin'] },
-    { key: '/workers', icon: <MonitorOutlined />, label: '工作机状态', roles: ['admin'] },
-  ];
-  const menuItems = allMenuItems
-    .filter((item) => item.roles.includes(role))
-    .map(({ key, icon, label }) => ({ key, icon, label }));
+  const menuItems = useMemo(() => {
+    const all: { key: string; icon: React.ReactNode; label: string; roles: Role[] }[] = [
+      { key: '/secrets', icon: <KeyOutlined />, label: '密钥管理', roles: ['data_entry', 'customer', 'admin'] },
+      { key: '/dashboard', icon: <DashboardOutlined />, label: '客户看板', roles: ['customer', 'admin'] },
+      { key: '/workers', icon: <MonitorOutlined />, label: '工作机状态', roles: ['admin'] },
+    ];
+    return all
+      .filter((item) => item.roles.includes(role))
+      .map(({ key, icon, label }) => ({ key, icon, label }));
+  }, [role]);
 
-  const handleMenuClick = ({ key }: { key: string }) => {
-    navigate(key);
-  };
+  const username = typeof window !== 'undefined' ? localStorage.getItem('username') : null;
 
   return (
-    <Header className="app-header" style={{
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: '0 24px',
-    }}>
-      <Menu
-        mode="horizontal"
-        selectedKeys={[location.pathname]}
-        items={menuItems}
-        onClick={handleMenuClick}
-        className="app-nav-menu"
-        style={{ flex: 1, borderBottom: 'none' }}
-      />
-      <Button
-        type="primary"
-        danger
-        icon={<LogoutOutlined />}
-        onClick={handleLogout}
+    <Layout className="app-shell" hasSider>
+      <Sider
+        className="app-sider"
+        width={244}
+        collapsed={collapsed}
+        onCollapse={setCollapsed}
+        collapsible
+        collapsedWidth={screens.lg === false ? 0 : 72}
+        breakpoint="lg"
+        trigger={null}
+        onBreakpoint={(broken) => {
+          if (broken) {
+            setCollapsed(true);
+          }
+        }}
       >
-        退出登录
-      </Button>
-    </Header>
-  );
-}
-
-// 主布局组件
-function MainLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <Layout className="app-layout" style={{ minHeight: '100vh' }}>
-      <EnvironmentBanner />
-      <Navigation />
-      <Content className="app-content" style={{ padding: '24px' }}>
-        {children}
-      </Content>
+        <div
+          className="app-sider-logo"
+          onClick={() => navigate('/secrets')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              navigate('/secrets');
+            }
+          }}
+        >
+          <span className="app-sider-logo-mark" aria-hidden>
+            P
+          </span>
+          {!collapsed && (
+            <span className="app-sider-logo-text">
+              <span className="app-sider-logo-title">PolyKMS</span>
+              <span className="app-sider-logo-sub">密钥与运维</span>
+            </span>
+          )}
+        </div>
+        <Menu
+          mode="inline"
+          selectedKeys={[location.pathname]}
+          items={menuItems}
+          onClick={({ key }) => navigate(String(key))}
+          className="app-sider-menu"
+        />
+      </Sider>
+      <Layout className="app-shell-main">
+        <Header className="app-shell-header">
+          <Button
+            type="text"
+            aria-label={collapsed ? '展开菜单' : '收起菜单'}
+            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed((c) => !c)}
+            className="app-shell-trigger"
+          />
+          <div className="app-shell-header-right">
+            {username ? (
+              <Text type="secondary" className="app-shell-user">
+                {username}
+              </Text>
+            ) : null}
+            <Button type="primary" danger icon={<LogoutOutlined />} onClick={handleLogout}>
+              退出登录
+            </Button>
+          </div>
+        </Header>
+        <EnvironmentBanner />
+        <Content className="app-shell-content">{children}</Content>
+      </Layout>
     </Layout>
   );
 }
 
-// 登录/注册页面组件
+function MainLayout({ children }: { children: React.ReactNode }) {
+  return <AppShell>{children}</AppShell>;
+}
+
 function AuthPage() {
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const navigate = useNavigate();
@@ -131,20 +175,31 @@ function AuthPage() {
   };
 
   return (
-    <Layout className="app-layout auth-layout" style={{ minHeight: '100vh' }}>
+    <div className="auth-layout">
       <EnvironmentBanner />
-      {authMode === 'login' ? (
-        <Login
-          onLoginSuccess={handleLoginSuccess}
-          onSwitchToRegister={() => setAuthMode('register')}
-        />
-      ) : (
-        <Register
-          onRegisterSuccess={handleRegisterSuccess}
-          onSwitchToLogin={() => setAuthMode('login')}
-        />
-      )}
-    </Layout>
+      <div className="auth-shell">
+        <aside className="auth-shell-brand">
+          <div className="auth-shell-brand-inner">
+            <h1>PolyKMS</h1>
+            <p>密钥管理、客户看板与工作机状态统一控制台。安全、清晰、为运维与业务协作而设计。</p>
+          </div>
+          <div className="auth-shell-brand-footer">内部使用 · 请妥善保管凭据</div>
+        </aside>
+        <div className="auth-shell-form">
+          {authMode === 'login' ? (
+            <Login
+              onLoginSuccess={handleLoginSuccess}
+              onSwitchToRegister={() => setAuthMode('register')}
+            />
+          ) : (
+            <Register
+              onRegisterSuccess={handleRegisterSuccess}
+              onSwitchToLogin={() => setAuthMode('login')}
+            />
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -152,11 +207,9 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* 登录/注册路由 */}
         <Route path="/login" element={<AuthPage />} />
         <Route path="/register" element={<AuthPage />} />
 
-        {/* 受保护的路由 */}
         <Route
           path="/secrets"
           element={
@@ -188,7 +241,6 @@ function App() {
           }
         />
 
-        {/* 默认重定向 */}
         <Route path="/" element={<Navigate to="/secrets" replace />} />
         <Route path="*" element={<Navigate to="/secrets" replace />} />
       </Routes>
