@@ -1,13 +1,30 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Button, Space, Card, Descriptions, Tag, Typography, Tooltip } from 'antd';
-import { ReloadOutlined, CopyOutlined, UploadOutlined, WalletOutlined, CheckCircleOutlined, DownOutlined, RightOutlined, DownloadOutlined } from '@ant-design/icons';
-import { workersAPI, ordersAPI, WorkerStatus as WorkerStatusType } from '../utils/api';
-import { isProductionEnvironment } from '../utils/env';
+import { Button, Space, Card, Descriptions, Tag, Typography, Tooltip, Spin } from 'antd';
+import { ReloadOutlined, CopyOutlined, DownOutlined, RightOutlined, DownloadOutlined } from '@ant-design/icons';
+import { workersAPI, WorkerStatus as WorkerStatusType } from '../utils/api';
 import { secureLog } from '../utils/security';
 import './WorkerStatus.css';
 
 const { Text } = Typography;
+
+/**
+ * 代理地址在表格中的缩略展示（如 0x123456...654321）；复制等操作仍应使用原始完整字符串。
+ */
+function abbreviateProxyAddressForDisplay(addr: string): string {
+  const t = addr.trim();
+  if (!t) return '-';
+  const lower = t.startsWith('0x') || t.startsWith('0X');
+  if (lower) {
+    const hex = t.slice(2);
+    if (hex.length <= 12) return t;
+    return `0x${hex.slice(0, 6)}...${hex.slice(-6)}`;
+  }
+  if (t.length > 18) {
+    return `${t.slice(0, 8)}...${t.slice(-6)}`;
+  }
+  return t;
+}
 
 export default function WorkerStatus() {
   const location = useLocation();
@@ -37,20 +54,10 @@ export default function WorkerStatus() {
   const [sortField, setSortField] = useState<string>('ip'); // 排序字段
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc'); // 排序顺序
   const [hideOffline, setHideOffline] = useState<boolean>(false); // 隐藏离线机器，默认不隐藏
-  const [selectedFile, setSelectedFile] = useState<File | null>(null); // 选定的文件
-  const [uploading, setUploading] = useState<Set<string>>(new Set()); // 正在上传的工作机IP集合
-  const [positionsData, setPositionsData] = useState<Map<string, any>>(new Map()); // 仓位数据，key为IP
-  const [loadingPositions, setLoadingPositions] = useState<Set<string>>(new Set()); // 正在加载仓位的工作机IP集合
-  const [showPositionsRows, setShowPositionsRows] = useState<Set<string>>(new Set()); // 显示仓位详情的行（IP集合）
-  const [showLimitOrderModal, setShowLimitOrderModal] = useState(false); // 显示限价单对话框
-  const [limitOrderData, setLimitOrderData] = useState<{ ip: string; token_id: string; asset: string; title: string; outcome: string; amount: number } | null>(null); // 限价单数据
-  const [limitOrderForm, setLimitOrderForm] = useState({ price: '', size_rate: '100' }); // 限价单表单（size_rate为百分比，默认100%）
-  const [submittingLimitOrder, setSubmittingLimitOrder] = useState(false); // 正在提交限价单
 
   // 使用 ref 保存最新状态，避免闭包问题
   const statusesRef = useRef<WorkerStatusType[]>([]);
   const expandedRowsRef = useRef<Set<number>>(new Set());
-  const showPositionsRowsRef = useRef<Set<string>>(new Set());
 
   // 同步 ref 和 state
   useEffect(() => {
@@ -60,10 +67,6 @@ export default function WorkerStatus() {
   useEffect(() => {
     expandedRowsRef.current = expandedRows;
   }, [expandedRows]);
-
-  useEffect(() => {
-    showPositionsRowsRef.current = showPositionsRows;
-  }, [showPositionsRows]);
 
   // 从数据分析页跳转过来时，展开指定 IP 的行
   const highlightIp = (location.state as { highlightIp?: string } | null)?.highlightIp;
@@ -89,7 +92,7 @@ export default function WorkerStatus() {
     { key: 'created_at', label: '创建时间' },
     { key: 'position_count', label: '持仓数' },
     { key: 'order_count', label: '挂单数' },
-    { key: 'tail_order_share', label: 'Tail下单份额' },
+    { key: 'tail_order_share', label: '尾盘下注份额' },
     { key: 'balance', label: 'USDC余额' },
     { key: 'total_assets', label: '资产总额' },
     { key: 'version_number', label: '程序版本号' },
@@ -120,7 +123,6 @@ export default function WorkerStatus() {
       // 从 ref 获取最新状态值，避免闭包问题
       const currentStatuses = statusesRef.current;
       const currentExpandedRows = expandedRowsRef.current;
-      const currentShowPositionsRows = showPositionsRowsRef.current;
 
       // 保存当前展开的行ID（基于IP），避免刷新时收回
       const currentExpandedIPs = new Set<string>();
@@ -129,9 +131,6 @@ export default function WorkerStatus() {
           currentExpandedIPs.add(status.ip);
         }
       });
-
-      // 保存当前显示仓位信息的IP列表
-      const currentPositionsIPs = new Set(currentShowPositionsRows);
 
       // 传递 hideOffline 参数给后端，让后端过滤掉所有离线机器（包括error状态）
       const response = await workersAPI.getWorkerStatuses(hideOffline);
@@ -183,16 +182,6 @@ export default function WorkerStatus() {
         });
         setExpandedRows(newExpandedRows);
 
-        // 恢复仓位信息显示状态（基于IP匹配）
-        const newShowPositionsRows = new Set<string>();
-        currentPositionsIPs.forEach(ip => {
-          // 检查新数据中是否还有这个IP
-          if (uniqueStatuses.some(s => s.ip === ip)) {
-            newShowPositionsRows.add(ip);
-          }
-        });
-        setShowPositionsRows(newShowPositionsRows);
-
         secureLog.log('去重前数量:', response.statuses.length, '去重后数量:', uniqueStatuses.length);
 
         // 调试：记录错误状态的工作机（error 状态统一显示为 offline，但日志中仍记录）
@@ -230,308 +219,6 @@ export default function WorkerStatus() {
     setTimeout(() => {
       setToast(null);
     }, 3000); // 3秒后自动消失
-  };
-
-  // 手动检查指定工作机状态
-  const handleCheckStatus = async (ip: string) => {
-    try {
-      await workersAPI.checkWorkerStatus(ip);
-      // 重新加载状态
-      await loadStatuses();
-      showToast('检查完成', 'success');
-    } catch (err: any) {
-      showToast(err.response?.data?.error || err.message || '检查工作机状态失败', 'error');
-    }
-  };
-
-  // 获取特定工作机的仓位信息
-  const loadWorkerPositions = async (ip: string) => {
-    if (loadingPositions.has(ip)) {
-      return; // 正在加载中，避免重复请求
-    }
-
-    setLoadingPositions(prev => new Set(prev).add(ip));
-
-    try {
-      // 使用代理接口获取仓位信息
-      const positions = await workersAPI.getWorkerPositions(ip);
-      setPositionsData(prev => {
-        const newMap = new Map(prev);
-        newMap.set(ip, positions);
-        return newMap;
-      });
-      // 展开显示仓位详情
-      setShowPositionsRows(prev => new Set(prev).add(ip));
-      // 如果行未展开，先展开行
-      const status = statuses.find(s => s.ip === ip);
-      if (status && !expandedRows.has(status.id)) {
-        setExpandedRows(prev => new Set(prev).add(status.id));
-      }
-      showToast(`${ip}: 仓位信息获取成功`, 'success');
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.error || err.message || '获取仓位信息失败';
-      showToast(`${ip}: ${errorMsg}`, 'error');
-      secureLog.error(`获取工作机 ${ip} 仓位信息失败:`, err);
-    } finally {
-      setLoadingPositions(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(ip);
-        return newSet;
-      });
-    }
-  };
-
-  // 打开限价单对话框
-  const handleOpenLimitOrder = (ip: string, token_id: string, asset: string, title: string, outcome: string, amount: number) => {
-    setLimitOrderData({ ip, token_id, asset, title, outcome, amount });
-    setLimitOrderForm({ price: '', size_rate: '100' });
-    setShowLimitOrderModal(true);
-  };
-
-  // 关闭限价单对话框
-  const handleCloseLimitOrder = () => {
-    setShowLimitOrderModal(false);
-    setLimitOrderData(null);
-    setLimitOrderForm({ price: '', size_rate: '100' });
-  };
-
-  // 提交限价单
-  const handleSubmitLimitOrder = async () => {
-    if (!limitOrderData) return;
-
-    const { price, size_rate } = limitOrderForm;
-    if (!price || !size_rate) {
-      showToast('请填写价格和仓位百分比', 'error');
-      return;
-    }
-
-    const priceNum = parseFloat(price);
-    const sizeRateNum = parseFloat(size_rate);
-
-    if (isNaN(priceNum) || priceNum <= 0) {
-      showToast('价格必须是大于0的数字', 'error');
-      return;
-    }
-
-    if (isNaN(sizeRateNum) || sizeRateNum <= 0 || sizeRateNum > 100) {
-      showToast('仓位百分比必须在0到100之间', 'error');
-      return;
-    }
-
-    setSubmittingLimitOrder(true);
-    try {
-      // 使用新的改挂限价单接口
-      const requestData: any = {
-        ip: limitOrderData.ip,
-        token_id: limitOrderData.token_id,
-        price: priceNum,
-      };
-
-      // 如果size_rate不是100%，添加到请求中
-      if (sizeRateNum !== 100) {
-        requestData.size_rate = sizeRateNum;
-      }
-
-      const response = await ordersAPI.modifyLimitOrder(requestData);
-
-      // 根据操作结果显示不同的提示信息
-      if (response.success) {
-        if (response.action === 'cancel') {
-          showToast(`已取消挂单: ${limitOrderData.asset} (${response.canceled_id || ''})`, 'success');
-        } else {
-          const sizeRateText = sizeRateNum === 100 ? '100%' : `${sizeRateNum}%`;
-          showToast(`限价单提交成功: ${limitOrderData.asset} @ ${priceNum} (${sizeRateText}) (${response.order_id || ''})`, 'success');
-        }
-        handleCloseLimitOrder();
-      } else {
-        showToast(`${limitOrderData.ip}: ${response.message || '操作失败'}`, 'error');
-      }
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.error || err.message || '提交限价单失败';
-      showToast(`${limitOrderData.ip}: ${errorMsg}`, 'error');
-      secureLog.error(`提交限价单失败:`, err);
-    } finally {
-      setSubmittingLimitOrder(false);
-    }
-  };
-
-  // 渲染仓位详情
-  const renderPositionsData = (ip: string) => {
-    const positions = positionsData.get(ip);
-    if (!positions) {
-      return null;
-    }
-
-    // 解析仓位数据，提取关键信息
-    const extractPositions = (data: any): Array<{
-      asset?: string;
-      title?: string;
-      outcome?: string;
-      amount?: number;
-      price?: number;
-      value?: number;
-      currentValue?: number;
-      cashPnl?: number;
-      [key: string]: any;
-    }> => {
-      if (Array.isArray(data)) {
-        return data;
-      }
-      if (data && typeof data === 'object') {
-        // 如果是对象，尝试找到仓位数组
-        if (data.positions && Array.isArray(data.positions)) {
-          return data.positions;
-        }
-        if (data.data && Array.isArray(data.data)) {
-          return data.data;
-        }
-        if (data.list && Array.isArray(data.list)) {
-          return data.list;
-        }
-        // 如果对象本身包含仓位信息，转换为数组
-        return [data];
-      }
-      return [];
-    };
-
-    const positionsList = extractPositions(positions);
-
-    if (positionsList.length === 0) {
-      return (
-        <div className="positions-empty">
-          <p>暂无仓位数据</p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="positions-container">
-        <h5 className="positions-title">仓位详情</h5>
-        <table className="positions-table">
-          <thead>
-            <tr>
-              <th>代币(Asset)</th>
-              <th>Title</th>
-              <th>Outcome</th>
-              <th>仓位数量</th>
-              <th>当前价值</th>
-              <th>盈亏</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {positionsList.map((pos, index) => {
-              // 提取关键字段（支持多种可能的字段名）
-              const asset = pos.asset || pos.tokenId || pos.token_id || pos.id || pos.symbol || '-';
-              const token_id = pos.token_id || pos.tokenId || pos.token || pos.id || asset || '-';
-              const title = pos.title || pos.Title || pos.TITLE || '-';
-              const outcome = pos.outcome || pos.Outcome || pos.OUTCOME || '-';
-              const amount = pos.amount || pos.quantity || pos.size || pos.position || 0;
-              const currentValue = pos.currentValue || pos.current_value || pos.CurrentValue || pos.CURRENT_VALUE || 0;
-              const cashPnl = pos.cashPnl || pos.cash_pnl || pos.CashPnl || pos.CASH_PNL || 0;
-
-              return (
-                <tr key={index}>
-                  <td>{asset}</td>
-                  <td>{title}</td>
-                  <td>{outcome}</td>
-                  <td>{typeof amount === 'number' ? amount.toLocaleString('zh-CN', { maximumFractionDigits: 8 }) : amount}</td>
-                  <td>{typeof currentValue === 'number' ? currentValue.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : currentValue}</td>
-                  <td>{typeof cashPnl === 'number' ? cashPnl.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : cashPnl}</td>
-                  <td>
-                    <button
-                      className="limit-order-button"
-                      onClick={() => handleOpenLimitOrder(ip, token_id, asset, title, outcome, amount)}
-                      disabled={submittingLimitOrder || amount <= 0}
-                      title={`为 ${asset} 挂限价单`}
-                    >
-                      挂限价单
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
-
-  // 上传文件到指定工作机（支持并发）
-  const handleUploadFile = async (ip: string) => {
-    if (!selectedFile) {
-      showToast('请先选择要上传的文件', 'error');
-      return;
-    }
-
-    // 检查文件扩展名
-    if (!selectedFile.name.toLowerCase().endsWith('.exe')) {
-      const confirmed = window.confirm(`文件不是.exe格式: ${selectedFile.name}\n是否继续上传?`);
-      if (!confirmed) {
-        return;
-      }
-    }
-
-    // 如果已经在上传中，直接返回
-    if (uploading.has(ip)) {
-      return;
-    }
-
-    // 添加到上传集合
-    setUploading(prev => new Set(prev).add(ip));
-
-    try {
-      const fileSizeMB = selectedFile.size / (1024 * 1024);
-      const timeout = Math.max(60, Math.ceil(fileSizeMB * 10)); // 每MB 10秒
-
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-
-      // 生产环境使用HTTPS，开发环境使用HTTP（工作机可能不支持HTTPS）
-      // 注意：生产环境建议工作机也配置HTTPS
-      const protocol = isProductionEnvironment() ? 'https' : 'http';
-      const url = `${protocol}://${ip}:8001/update`;
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout * 1000);
-
-      const response = await fetch(url, {
-        method: 'POST',
-        body: formData,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        const result = await response.json();
-        showToast(`${ip}: 文件上传成功! ${result.message || ''}`, 'success');
-        // 重新加载状态
-        await loadStatuses();
-      } else if (response.status === 403) {
-        const error = await response.json().catch(() => ({ error: 'Access denied' }));
-        showToast(`${ip}: 访问被拒绝 - ${error.error || '请检查IP是否在白名单中'}`, 'error');
-      } else if (response.status === 502) {
-        showToast(`${ip}: 上传失败 - 服务器守护进程可能未运行或已崩溃`, 'error');
-      } else {
-        const error = await response.json().catch(() => ({ error: response.statusText }));
-        showToast(`${ip}: 上传失败 - ${error.error || response.statusText}`, 'error');
-      }
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        showToast(`${ip}: 上传超时，请检查网络连接或文件大小`, 'error');
-      } else {
-        showToast(`${ip}: 上传失败 - ${err.message || '未知错误'}`, 'error');
-      }
-      secureLog.error(`上传文件到 ${ip} 失败:`, err);
-    } finally {
-      // 从上传集合中移除
-      setUploading(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(ip);
-        return newSet;
-      });
-    }
   };
 
   // 初始加载：加载状态数据（包含 info 和 status）
@@ -1298,6 +985,12 @@ export default function WorkerStatus() {
 
   return (
     <div className="worker-status-container">
+      <header className="worker-status-page-head" aria-label="工作机监控">
+        <div className="worker-status-page-head-text">
+          <h1 className="worker-status-title">工作机监控</h1>
+          <p className="worker-status-subtitle">实时状态 · 业务信息 · 自动刷新可暂停</p>
+        </div>
+      </header>
       {/* 统计信息 - 横向布局放在最上面 */}
       <div className="stats-container-top">
         <div className="stat-item-top">
@@ -1322,11 +1015,6 @@ export default function WorkerStatus() {
         </div>
       </div>
 
-      <div className="worker-status-header">
-        {/* <h2>工作机状态监控</h2> */}
-        {/* 刷新按钮已移到操作列标题 */}
-      </div>
-
       <div className="main-layout">
         {/* 主内容区域 - 表格 */}
         <div className="main-content">
@@ -1340,7 +1028,9 @@ export default function WorkerStatus() {
           )}
 
           {loading && statuses.length === 0 ? (
-            <div className="loading">加载中...</div>
+            <div className="loading-wrap" role="status" aria-live="polite">
+              <Spin size="large" tip="加载工作机数据…" />
+            </div>
           ) : (
             <div className="table-container">
               {/* 搜索框与控制按钮 - 放在表头上方 */}
@@ -1364,6 +1054,15 @@ export default function WorkerStatus() {
                   )}
                 </div>
                 <div className="search-box-right">
+                  <button
+                    type="button"
+                    className="toggle-button"
+                    onClick={() => loadStatuses()}
+                    disabled={loading}
+                    title="立即刷新列表"
+                  >
+                    <ReloadOutlined spin={loading} /> 刷新
+                  </button>
                   <button
                     className="toggle-button"
                     onClick={handleExportFilteredData}
@@ -1599,7 +1298,7 @@ export default function WorkerStatus() {
                             }
                           }}
                         >
-                          Tail下单份额
+                          尾盘下注份额
                           {sortField === 'tail_order_share' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
                         </th>
                       )}
@@ -1651,21 +1350,6 @@ export default function WorkerStatus() {
                           {sortField === 'version_number' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
                         </th>
                       )}
-                      <th className="action-header">
-                        <Space>
-                          <span>操作</span>
-                          <Tooltip title="刷新列表">
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<ReloadOutlined spin={loading} />}
-                              onClick={loadStatuses}
-                              disabled={loading}
-                              style={{ padding: '0 4px' }}
-                            />
-                          </Tooltip>
-                        </Space>
-                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1689,12 +1373,29 @@ export default function WorkerStatus() {
 
                       const businessData = Object.keys(mergedData).length > 0 ? mergedData : null;
                       const isExpanded = expandedRows.has(status.id);
-                      const colSpan = selectedFields.length + 1; // +1 for 操作列
+                      const colSpan = selectedFields.length;
+                      const nestedProxyWallet = getProxyWalletAddress(status.info_data, status.data);
                       // 使用IP作为key，确保唯一性
                       return (
                         <React.Fragment key={status.ip || status.id}>
                           <tr>
-                            {selectedFields.includes('ip') && <td>{status.ip}</td>}
+                            {selectedFields.includes('ip') && (
+                              <td>
+                                <Space size="small" align="center">
+                                  {businessData && (
+                                    <Tooltip title={isExpanded ? '收起详情' : '查看详情'}>
+                                      <Button
+                                        type="text"
+                                        size="small"
+                                        icon={isExpanded ? <DownOutlined /> : <RightOutlined />}
+                                        onClick={() => toggleRowExpansion(status.id)}
+                                      />
+                                    </Tooltip>
+                                  )}
+                                  <span>{status.ip}</span>
+                                </Space>
+                              </td>
+                            )}
                             {selectedFields.includes('key_name') && (
                               <td>
                                 {status.key_name ? <Tag color="blue">{status.key_name}</Tag> : <span style={{ color: '#999' }}>-</span>}
@@ -1702,43 +1403,84 @@ export default function WorkerStatus() {
                             )}
                             {selectedFields.includes('proxy_address') && (
                               <td>
-                                {status.proxy_address ? (
-                                  <span
-                                    style={{
-                                      cursor: 'pointer',
-                                      color: '#1890ff',
-                                      textDecoration: 'underline',
-                                      fontFamily: 'monospace',
-                                    }}
-                                    onClick={async () => {
-                                      try {
-                                        await navigator.clipboard.writeText(status.proxy_address!);
-                                        showToast('代理地址已复制到剪贴板', 'success');
-                                      } catch (err) {
-                                        secureLog.error('复制失败:', err);
-                                        // 降级方案：使用传统方法
-                                        const textArea = document.createElement('textarea');
-                                        textArea.value = status.proxy_address!;
-                                        textArea.style.position = 'fixed';
-                                        textArea.style.opacity = '0';
-                                        document.body.appendChild(textArea);
-                                        textArea.select();
-                                        try {
-                                          document.execCommand('copy');
-                                          showToast('代理地址已复制到剪贴板', 'success');
-                                        } catch (e) {
-                                          showToast('复制失败，请手动复制', 'error');
-                                        }
-                                        document.body.removeChild(textArea);
-                                      }
-                                    }}
-                                    title={`点击复制完整地址: ${status.proxy_address}`}
-                                  >
-                                    {status.proxy_address}
-                                  </span>
-                                ) : (
-                                  <span style={{ color: '#999' }}>-</span>
-                                )}
+                                <Space size="small" wrap>
+                                  {status.proxy_address ? (
+                                    <Tooltip title={`${status.proxy_address}（点击复制完整地址）`}>
+                                      <span
+                                        role="button"
+                                        tabIndex={0}
+                                        style={{
+                                          cursor: 'pointer',
+                                          color: '#1890ff',
+                                          textDecoration: 'underline',
+                                          fontFamily: 'monospace',
+                                        }}
+                                        onClick={async () => {
+                                          try {
+                                            await navigator.clipboard.writeText(status.proxy_address!);
+                                            showToast('代理地址已复制到剪贴板', 'success');
+                                          } catch (err) {
+                                            secureLog.error('复制失败:', err);
+                                            const textArea = document.createElement('textarea');
+                                            textArea.value = status.proxy_address!;
+                                            textArea.style.position = 'fixed';
+                                            textArea.style.opacity = '0';
+                                            document.body.appendChild(textArea);
+                                            textArea.select();
+                                            try {
+                                              document.execCommand('copy');
+                                              showToast('代理地址已复制到剪贴板', 'success');
+                                            } catch (e) {
+                                              showToast('复制失败，请手动复制', 'error');
+                                            }
+                                            document.body.removeChild(textArea);
+                                          }
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            (e.currentTarget as HTMLElement).click();
+                                          }
+                                        }}
+                                      >
+                                        {abbreviateProxyAddressForDisplay(status.proxy_address)}
+                                      </span>
+                                    </Tooltip>
+                                  ) : (
+                                    <span style={{ color: '#999' }}>-</span>
+                                  )}
+                                  {nestedProxyWallet &&
+                                    nestedProxyWallet !== (status.proxy_address || '').trim() && (
+                                      <Tooltip title={`复制解析出的代理钱包地址: ${nestedProxyWallet}`}>
+                                        <Button
+                                          type="text"
+                                          size="small"
+                                          icon={<CopyOutlined />}
+                                          onClick={async () => {
+                                            try {
+                                              await navigator.clipboard.writeText(nestedProxyWallet);
+                                              showToast('代理钱包地址已复制到剪贴板');
+                                            } catch (err) {
+                                              secureLog.error('复制失败:', err);
+                                              const textArea = document.createElement('textarea');
+                                              textArea.value = nestedProxyWallet;
+                                              textArea.style.position = 'fixed';
+                                              textArea.style.opacity = '0';
+                                              document.body.appendChild(textArea);
+                                              textArea.select();
+                                              try {
+                                                document.execCommand('copy');
+                                                showToast('代理钱包地址已复制到剪贴板');
+                                              } catch (e) {
+                                                showToast('复制失败，请手动复制', 'error');
+                                              }
+                                              document.body.removeChild(textArea);
+                                            }
+                                          }}
+                                        />
+                                      </Tooltip>
+                                    )}
+                                </Space>
                               </td>
                             )}
                             {selectedFields.includes('wallet_type') && (
@@ -1814,96 +1556,12 @@ export default function WorkerStatus() {
                                 {getKeyMetricValue(staticInfo, 'version_number')}
                               </td>
                             )}
-                            <td>
-                              <Space size="small" wrap>
-                                {businessData && (
-                                  <Tooltip title={isExpanded ? '收起详情' : '查看详情'}>
-                                    <Button
-                                      type="text"
-                                      size="small"
-                                      icon={isExpanded ? <DownOutlined /> : <RightOutlined />}
-                                      onClick={() => toggleRowExpansion(status.id)}
-                                    />
-                                  </Tooltip>
-                                )}
-                                {(() => {
-                                  // 优先从 info_data 中查找代理钱包地址，如果没找到再从 data 中查找
-                                  const proxyAddress = getProxyWalletAddress(status.info_data, status.data);
-                                  return proxyAddress ? (
-                                    <Tooltip title={`复制代理钱包地址: ${proxyAddress}`}>
-                                      <Button
-                                        type="text"
-                                        size="small"
-                                        icon={<CopyOutlined />}
-                                        onClick={async () => {
-                                          try {
-                                            await navigator.clipboard.writeText(proxyAddress);
-                                            showToast('代理钱包地址已复制到剪贴板');
-                                          } catch (err) {
-                                            secureLog.error('复制失败:', err);
-                                            // 降级方案：使用传统方法
-                                            const textArea = document.createElement('textarea');
-                                            textArea.value = proxyAddress;
-                                            textArea.style.position = 'fixed';
-                                            textArea.style.opacity = '0';
-                                            document.body.appendChild(textArea);
-                                            textArea.select();
-                                            try {
-                                              document.execCommand('copy');
-                                              showToast('代理钱包地址已复制到剪贴板');
-                                            } catch (e) {
-                                              showToast('复制失败，请手动复制', 'error');
-                                            }
-                                            document.body.removeChild(textArea);
-                                          }
-                                        }}
-                                      />
-                                    </Tooltip>
-                                  ) : null;
-                                })()}
-                                {selectedFile && (
-                                  <Tooltip title={`上传文件到 ${status.ip}`}>
-                                    <Button
-                                      type="text"
-                                      size="small"
-                                      icon={<UploadOutlined />}
-                                      loading={uploading.has(status.ip)}
-                                      onClick={() => handleUploadFile(status.ip)}
-                                      disabled={uploading.has(status.ip)}
-                                    />
-                                  </Tooltip>
-                                )}
-                                <Tooltip title={`获取 ${status.ip} 的仓位信息`}>
-                                  <Button
-                                    type="text"
-                                    size="small"
-                                    icon={<WalletOutlined />}
-                                    loading={loadingPositions.has(status.ip)}
-                                    onClick={() => loadWorkerPositions(status.ip)}
-                                    disabled={loadingPositions.has(status.ip)}
-                                  />
-                                </Tooltip>
-                                <Tooltip title="检查工作机状态">
-                                  <Button
-                                    type="text"
-                                    size="small"
-                                    icon={<CheckCircleOutlined />}
-                                    onClick={() => handleCheckStatus(status.ip)}
-                                  />
-                                </Tooltip>
-                              </Space>
-                            </td>
                           </tr>
                           {isExpanded && (
                             <tr className="detail-row">
                               <td colSpan={colSpan} className="detail-cell">
                                 <div className="detail-content">
-                                  {/* 只显示仓位信息，不显示业务信息 */}
-                                  {showPositionsRows.has(status.ip) ? (
-                                    <div className="positions-section">
-                                      {renderPositionsData(status.ip)}
-                                    </div>
-                                  ) : businessData ? (
+                                  {businessData ? (
                                     <Card
                                       title={
                                         <Space>
@@ -1916,7 +1574,11 @@ export default function WorkerStatus() {
                                     >
                                       {renderBusinessData(businessData)}
                                     </Card>
-                                  ) : null}
+                                  ) : (
+                                    <div className="positions-empty">
+                                      <p>暂无业务信息</p>
+                                    </div>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -1933,52 +1595,6 @@ export default function WorkerStatus() {
 
         {/* 侧边栏 */}
         <div className="sidebar">
-          {/* 文件选择器 */}
-          <div className="sidebar-section">
-            <h3 className="sidebar-title">文件上传</h3>
-            <div className="file-selector">
-              <label className="file-select-label">
-                <input
-                  type="file"
-                  accept=".exe"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null;
-                    setSelectedFile(file);
-                  }}
-                  style={{ display: 'none' }}
-                  id="file-input"
-                />
-                <span className="file-select-button">选择文件</span>
-              </label>
-              {selectedFile && (
-                <div className="file-info">
-                  <span className="file-name">{selectedFile.name}</span>
-                  <span className="file-size">
-                    ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
-                  </span>
-                  <button
-                    className="file-clear-button"
-                    onClick={() => {
-                      setSelectedFile(null);
-                      const input = document.getElementById('file-input') as HTMLInputElement;
-                      if (input) input.value = '';
-                    }}
-                    title="清除选择"
-                  >
-                    ✕
-                  </button>
-                </div>
-              )}
-            </div>
-            {selectedFile && (
-              <div className="file-upload-hint">
-                <span>已选择文件，点击工作机操作列的"上传"按钮进行上传</span>
-              </div>
-            )}
-          </div>
-
-          {/* 统计信息已移到顶部 */}
-
           {/* 过滤 */}
           <div className="sidebar-section">
             <h3 className="sidebar-title">过滤</h3>
@@ -2018,93 +1634,6 @@ export default function WorkerStatus() {
           </div>
         </div>
       </div>
-
-      {/* 限价单对话框 */}
-      {showLimitOrderModal && limitOrderData && (
-        <div className="modal-overlay" onClick={handleCloseLimitOrder}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>挂限价单</h3>
-              <button className="modal-close" onClick={handleCloseLimitOrder}>
-                ×
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="limit-order-info">
-                <div className="info-item">
-                  <label>工作机IP:</label>
-                  <span>{limitOrderData.ip}</span>
-                </div>
-                <div className="info-item">
-                  <label>代币(Asset):</label>
-                  <span>{limitOrderData.asset}</span>
-                </div>
-                <div className="info-item">
-                  <label>Token ID:</label>
-                  <span style={{ fontSize: '11px', wordBreak: 'break-all' }}>{limitOrderData.token_id}</span>
-                </div>
-                <div className="info-item">
-                  <label>Title:</label>
-                  <span>{limitOrderData.title}</span>
-                </div>
-                <div className="info-item">
-                  <label>Outcome:</label>
-                  <span>{limitOrderData.outcome}</span>
-                </div>
-                <div className="info-item">
-                  <label>当前仓位数量:</label>
-                  <span>{limitOrderData.amount.toLocaleString('zh-CN', { maximumFractionDigits: 8 })}</span>
-                </div>
-              </div>
-              <div className="limit-order-form">
-                <div className="form-group">
-                  <label>限价价格 *</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={limitOrderForm.price}
-                    onChange={(e) => setLimitOrderForm({ ...limitOrderForm, price: e.target.value })}
-                    placeholder="请输入限价价格"
-                    disabled={submittingLimitOrder}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>仓位百分比 (%) *</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    value={limitOrderForm.size_rate}
-                    onChange={(e) => setLimitOrderForm({ ...limitOrderForm, size_rate: e.target.value })}
-                    placeholder="请输入仓位百分比 (0-100，默认100%)"
-                    disabled={submittingLimitOrder}
-                  />
-                  <small style={{ color: '#666', fontSize: '12px', marginTop: '4px', display: 'block' }}>
-                    默认100%表示使用全部仓位，可指定0-100之间的百分比
-                  </small>
-                </div>
-              </div>
-              <div className="modal-actions">
-                <button
-                  className="btn-secondary"
-                  onClick={handleCloseLimitOrder}
-                  disabled={submittingLimitOrder}
-                >
-                  取消
-                </button>
-                <button
-                  className="btn-primary"
-                  onClick={handleSubmitLimitOrder}
-                  disabled={submittingLimitOrder || !limitOrderForm.price || !limitOrderForm.size_rate}
-                >
-                  {submittingLimitOrder ? '提交中...' : '提交限价单'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );
