@@ -198,47 +198,97 @@ body {
 /* ========== 登录 / 注册 ========== */
 .auth-layout {
   min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-layout::before,
+.auth-layout::after {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(2px);
+  pointer-events: none;
+}
+
+.auth-layout::before {
+  width: 560px;
+  height: 560px;
+  left: -180px;
+  top: -140px;
+  background: radial-gradient(circle, rgba(79, 70, 229, 0.2) 0%, rgba(79, 70, 229, 0) 70%);
+}
+
+.auth-layout::after {
+  width: 460px;
+  height: 460px;
+  right: -150px;
+  bottom: -120px;
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.18) 0%, rgba(14, 165, 233, 0) 70%);
 }
 
 .auth-shell {
+  position: relative;
+  z-index: 1;
   display: flex;
   min-height: 100vh;
   align-items: stretch;
+  width: min(1160px, calc(100vw - 40px));
+  margin: 0 auto;
+  padding: 28px 0;
 }
 
 .auth-shell-brand {
   display: none;
   flex: 1;
-  max-width: 46%;
-  padding: 48px 56px;
-  background: linear-gradient(155deg, #312e81 0%, #4f46e5 42%, #6366f1 100%);
+  max-width: 48%;
+  padding: 52px 52px 44px;
+  border-radius: 28px 0 0 28px;
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 50%),
+    linear-gradient(155deg, #312e81 0%, #4f46e5 42%, #6366f1 100%);
   color: #fff;
   flex-direction: column;
   justify-content: space-between;
+  box-shadow: 0 16px 44px rgba(30, 41, 59, 0.16);
 }
 
 .auth-shell-brand-inner {
-  margin-top: 8vh;
+  margin-top: 5vh;
 }
 
 .auth-shell-brand h1 {
-  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-size: clamp(1.9rem, 3.2vw, 2.5rem);
   font-weight: 800;
   letter-spacing: -0.04em;
   line-height: 1.15;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .auth-shell-brand p {
   font-size: 15px;
   line-height: 1.65;
-  opacity: 0.92;
-  max-width: 400px;
+  opacity: 0.94;
+  max-width: 420px;
+}
+
+.auth-shell-brand::after {
+  content: 'KEY / OPS / DASHBOARD';
+  display: inline-flex;
+  margin-top: 32px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  width: fit-content;
 }
 
 .auth-shell-brand-footer {
   font-size: 12px;
-  opacity: 0.65;
+  opacity: 0.72;
 }
 
 .auth-shell-form {
@@ -246,8 +296,15 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px 24px;
+  padding: 32px 24px 32px 36px;
   min-height: 100vh;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-left: none;
+  border-radius: 0 28px 28px 0;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 16px 44px rgba(30, 41, 59, 0.08);
 }
 
 @media (min-width: 900px) {
@@ -256,20 +313,88 @@ body {
   }
 }
 
+/* 登录页顶部 Tabs：分段式顶栏，与浅色主题统一 */
+.auth-page-tabs {
+  width: 100%;
+  max-width: 480px;
+}
+
+.auth-page-tabs .ant-tabs-nav {
+  margin-bottom: 8px;
+}
+
+.auth-page-tabs .ant-tabs-nav::before {
+  border-bottom: none;
+}
+
+.auth-page-tabs .ant-tabs-nav-wrap {
+  justify-content: center;
+}
+
+.auth-page-tabs .ant-tabs-nav-list {
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(241, 245, 249, 0.95);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.auth-page-tabs .ant-tabs-tab {
+  margin: 0 !important;
+  padding: 8px 28px !important;
+  border-radius: 10px !important;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--polydash-text-muted) !important;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.auth-page-tabs .ant-tabs-tab:hover {
+  color: var(--polydash-accent) !important;
+}
+
+.auth-page-tabs .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--polydash-text) !important;
+}
+
+.auth-page-tabs .ant-tabs-tab-active {
+  background: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.auth-page-tabs .ant-tabs-ink-bar {
+  display: none;
+}
+
+.auth-page-tabs .ant-tabs-content-holder {
+  padding-top: 8px;
+}
+
 .auth-container {
   width: 100%;
-  max-width: 420px;
+  max-width: 460px;
+  padding: 10px 0;
 }
 
 .auth-container .ant-card {
-  background: var(--polydash-bg-card) !important;
-  border: 1px solid var(--polydash-border) !important;
-  border-radius: var(--polydash-radius) !important;
-  box-shadow: var(--polydash-shadow);
+  background: rgba(255, 255, 255, 0.92) !important;
+  border: 1px solid rgba(226, 232, 240, 0.95) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.1);
+}
+
+.auth-container .ant-card-body {
+  padding: 28px 26px 22px !important;
 }
 
 .auth-container .ant-typography {
   color: var(--polydash-text) !important;
+}
+
+.auth-container h2.ant-typography {
+  margin-bottom: 6px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em;
 }
 
 .auth-container .ant-form-item-label > label {
@@ -279,8 +404,9 @@ body {
 .auth-container .ant-input,
 .auth-container .ant-input-password input {
   background: #f8fafc !important;
-  border-color: var(--polydash-border) !important;
+  border-color: #dbe4f0 !important;
   color: var(--polydash-text) !important;
+  border-radius: 10px !important;
 }
 
 .auth-container .ant-input::placeholder {
@@ -289,7 +415,43 @@ body {
 
 .auth-container .ant-input-affix-wrapper {
   background: #f8fafc !important;
-  border-color: var(--polydash-border) !important;
+  border-color: #dbe4f0 !important;
+  border-radius: 10px !important;
+}
+
+.auth-container .ant-input-affix-wrapper-focused,
+.auth-container .ant-input-affix-wrapper:focus,
+.auth-container .ant-input:focus,
+.auth-container .ant-input-focused {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14) !important;
+}
+
+.auth-container .ant-btn-primary {
+  height: 44px;
+  border-radius: 10px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%) !important;
+  border: none !important;
+  box-shadow: 0 8px 18px rgba(79, 70, 229, 0.28);
+}
+
+.auth-container .ant-btn-primary:hover,
+.auth-container .ant-btn-primary:focus {
+  filter: brightness(1.03);
+  box-shadow: 0 10px 22px rgba(79, 70, 229, 0.34);
+}
+
+.auth-container .ant-btn-link {
+  font-weight: 600;
+}
+
+.auth-container .ant-alert {
+  border-radius: 10px;
+}
+
+.auth-container .ant-progress-line {
+  margin-bottom: 2px;
 }
 
 /* 页面容器 */
@@ -377,12 +539,34 @@ body {
 }
 
 @media (max-width: 768px) {
+  .auth-shell {
+    width: calc(100vw - 20px);
+    padding: 14px 0;
+  }
+
+  .auth-shell-form {
+    border-left: 1px solid rgba(226, 232, 240, 0.9);
+    border-radius: 20px;
+    padding: 18px 14px;
+    min-height: calc(100vh - 28px);
+  }
+
+  .auth-container .ant-card-body {
+    padding: 22px 18px 18px !important;
+  }
+
   .page-container {
     padding: 16px;
   }
 
   .app-shell-content {
     padding: 16px !important;
+  }
+}
+
+@media (max-width: 899px) {
+  .auth-shell {
+    max-width: 560px;
   }
 }
 

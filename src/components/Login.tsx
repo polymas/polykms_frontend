@@ -5,7 +5,7 @@ import { authAPI } from '../utils/api';
 import { validateUsername, sanitizeInput } from '../utils/validation';
 import { getSafeErrorMessage, throttle } from '../utils/security';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface LoginProps {
   onLoginSuccess: () => void;
@@ -82,9 +82,6 @@ export default function Login({ onLoginSuccess, onSwitchToRegister }: LoginProps
   return (
     <div className="auth-container">
       <Card className="auth-card" style={{ width: 400 }}>
-        <Title level={2} style={{ textAlign: 'center', marginBottom: 24 }}>
-          登录
-        </Title>
         {error && (
           <Alert
             message={error}

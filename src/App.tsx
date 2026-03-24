@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Button, Typography, Grid } from 'antd';
+import { Layout, Menu, Button, Typography, Grid, Tabs } from 'antd';
 import {
   KeyOutlined,
   MonitorOutlined,
@@ -165,6 +165,12 @@ function MainLayout({ children }: { children: React.ReactNode }) {
 function AuthPage() {
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // 与路由 /login、/register 同步，便于分享链接与浏览器前进后退
+  useEffect(() => {
+    setAuthMode(location.pathname === '/register' ? 'register' : 'login');
+  }, [location.pathname]);
 
   const handleLoginSuccess = () => {
     navigate('/secrets');
@@ -172,6 +178,12 @@ function AuthPage() {
 
   const handleRegisterSuccess = () => {
     navigate('/secrets');
+  };
+
+  const handleAuthTabChange = (key: string) => {
+    const mode = key as AuthMode;
+    setAuthMode(mode);
+    navigate(mode === 'register' ? '/register' : '/login', { replace: true });
   };
 
   return (
@@ -186,17 +198,36 @@ function AuthPage() {
           <div className="auth-shell-brand-footer">内部使用 · 请妥善保管凭据</div>
         </aside>
         <div className="auth-shell-form">
-          {authMode === 'login' ? (
-            <Login
-              onLoginSuccess={handleLoginSuccess}
-              onSwitchToRegister={() => setAuthMode('register')}
-            />
-          ) : (
-            <Register
-              onRegisterSuccess={handleRegisterSuccess}
-              onSwitchToLogin={() => setAuthMode('login')}
-            />
-          )}
+          <Tabs
+            activeKey={authMode}
+            onChange={handleAuthTabChange}
+            className="auth-page-tabs"
+            centered
+            size="large"
+            destroyInactiveTabPane={false}
+            items={[
+              {
+                key: 'login',
+                label: '登录',
+                children: (
+                  <Login
+                    onLoginSuccess={handleLoginSuccess}
+                    onSwitchToRegister={() => handleAuthTabChange('register')}
+                  />
+                ),
+              },
+              {
+                key: 'register',
+                label: '注册',
+                children: (
+                  <Register
+                    onRegisterSuccess={handleRegisterSuccess}
+                    onSwitchToLogin={() => handleAuthTabChange('login')}
+                  />
+                ),
+              },
+            ]}
+          />
         </div>
       </div>
     </div>

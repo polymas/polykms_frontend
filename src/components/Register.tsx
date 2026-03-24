@@ -5,7 +5,7 @@ import { authAPI } from '../utils/api';
 import { validateUsername, validatePassword, validateEmail, sanitizeInput } from '../utils/validation';
 import { getSafeErrorMessage, throttle } from '../utils/security';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface RegisterProps {
   onRegisterSuccess: () => void;
@@ -172,9 +172,6 @@ export default function Register({ onRegisterSuccess, onSwitchToLogin }: Registe
   return (
     <div className="auth-container">
       <Card className="auth-card" style={{ width: 450 }}>
-        <Title level={2} style={{ textAlign: 'center', marginBottom: 24 }}>
-          注册
-        </Title>
         {error && (
           <Alert
             message={error}
