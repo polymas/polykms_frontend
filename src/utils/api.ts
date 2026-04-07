@@ -209,6 +209,9 @@ export interface UpdateSecretMetaRequest {
   key_name: string;
   tail_order_share: number;
   reason?: string;
+  api_key?: string;
+  api_secret?: string;
+  api_passphrase?: string;
 }
 
 export interface UpdateSecretMetaResponse {

@@ -333,11 +333,32 @@ export default function SecretManagement() {
     try {
       const values = await editForm.validateFields();
       setEditSubmitting(true);
-      await secretsAPI.updateSecretMeta(editingSecret.id, {
+
+      const updateData: any = {
         key_name: sanitizeInput(values.key_name),
         tail_order_share: Math.round(Number(values.tail_order_share)),
         reason: values.reason ? sanitizeInput(values.reason) : undefined,
-      });
+      };
+
+      // 如果填了三元组字段，则一起更新
+      if (values.api_key) {
+        updateData.api_key = values.api_key;
+      }
+      if (values.api_secret) {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          message.error('未找到登录token');
+          setEditSubmitting(false);
+          return;
+        }
+        const clientKey = parseJWT(token);
+        updateData.api_secret = await encryptSecret(values.api_secret, clientKey);
+      }
+      if (values.api_passphrase) {
+        updateData.api_passphrase = values.api_passphrase;
+      }
+
+      await secretsAPI.updateSecretMeta(editingSecret.id, updateData);
       message.success('密钥信息更新成功');
       setEditModalVisible(false);
       setEditingSecret(null);
@@ -783,6 +804,28 @@ export default function SecretManagement() {
                   ]}
                 >
                   <InputNumber min={0} max={1000} step={1} precision={0} style={{ width: '100%' }} />
+                </Form.Item>
+                <Divider>API 三元组（留空则不更新）</Divider>
+                <Form.Item label="API Key" name="api_key">
+                  <Input.Password
+                    placeholder="留空则不更新"
+                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                </Form.Item>
+                <Form.Item label="API Secret" name="api_secret">
+                  <Input.Password
+                    placeholder="留空则不更新（将自动加密存储）"
+                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                </Form.Item>
+                <Form.Item label="API Passphrase" name="api_passphrase">
+                  <Input.Password
+                    placeholder="留空则不更新"
+                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+                    style={{ fontFamily: 'monospace' }}
+                  />
                 </Form.Item>
                 <Form.Item label="变更原因（可选）" name="reason">
                   <Input.TextArea rows={3} maxLength={500} placeholder="用于审计日志，建议填写本次修改原因" />
