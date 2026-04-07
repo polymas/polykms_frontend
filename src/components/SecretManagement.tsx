@@ -47,7 +47,7 @@ export default function SecretManagement() {
   const [editingSecret, setEditingSecret] = useState<ListSecretsResponse['secrets'][number] | null>(null);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
-  const canEditSecrets = canListSecrets;
+  const canEditSecrets = role === 'admin';
 
   // 加载密钥列表（admin 全量，customer 本人；data_entry 不展示列表）
   const loadSecrets = async () => {
