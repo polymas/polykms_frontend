@@ -42,6 +42,7 @@ const fmtShort = (n: number | null | undefined) => {
   return s + '$' + a.toFixed(0);
 };
 const addrShort = (w: string) => (w.length > 12 ? w.slice(0, 6) + '...' + w.slice(-4) : w);
+const fmtDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 interface ChartPoint { date: string; daily: number; cumulative: number; volume: number; isWeekend: boolean }
 
@@ -62,14 +63,12 @@ function ActivityCalendar({ daily, wallet, group, calMode, onModeChange, selecte
   selectedDate: string | null;
   onSelectDate: (d: string | null) => void;
 }) {
+  const todayStr = fmtDate(new Date());
   if (!daily || daily.length === 0) return null;
 
   // Build data map
   const dataMap: Record<string, { pnl: number; volume: number }> = {};
   for (const d of daily) dataMap[d.date] = { pnl: d.day_pnl, volume: d.volume };
-
-  // Helper: format Date as YYYY-MM-DD in local timezone (avoid toISOString UTC shift)
-  const fmtDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
   // Fill gaps
   const sortedDates = Object.keys(dataMap).sort();
@@ -158,7 +157,7 @@ function ActivityCalendar({ daily, wallet, group, calMode, onModeChange, selecte
                   return (
                     <div
                       key={ci}
-                      className={`pa-cal-cell${isSelected ? ' selected' : ''}`}
+                      className={`pa-cal-cell${isSelected ? ' selected' : ''}${cell.date === todayStr ? ' today' : ''}`}
                       style={{ background: isSelected ? 'var(--pa-accent)' : cellColor(cell.val) }}
                       onClick={() => (wallet || group) && onSelectDate(isSelected ? null : cell.date)}
                       title={`${cell.date}: ${calMode === 'pnl' ? '盈亏' : 'Vol'} ${fmt(cell.val)}`}
@@ -184,7 +183,7 @@ export default function PolyActivity() {
   const [search, setSearch] = useState('');
 
   // Selection: group or single wallet within a group
-  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<string | null>('_total');
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
 
   // Data
@@ -444,9 +443,21 @@ export default function PolyActivity() {
     <div className="pa-root">
       <div className="pa-header">
         <h1>PolyActivity</h1>
-        <span style={{ fontSize: 13, color: 'var(--pa-text2)' }}>
-          {groups.length} groups
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 13, color: 'var(--pa-text2)' }}>{groups.length} 分组</span>
+          <button className="pa-chart-tab" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => {
+            setLoading(true);
+            sharddbAPI.getGroups().then((g) => {
+              setGroups(g);
+              sharddbAPI.getWallets().then((ws) => {
+                const labels: Record<string, string> = {};
+                const pnls: Record<string, number> = {};
+                for (const w of ws) { if (w.label) labels[w.wallet] = w.label; pnls[w.wallet] = w.pnl ?? 0; }
+                setWalletLabels(labels); setWalletPnls(pnls);
+              });
+            }).catch(console.error).finally(() => setLoading(false));
+          }}>刷新</button>
+        </div>
       </div>
 
       <div className="pa-layout">

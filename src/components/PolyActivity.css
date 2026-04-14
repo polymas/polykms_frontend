@@ -313,6 +313,7 @@
 .pa-cal-cell:hover { transform: scale(1.1); z-index: 2; box-shadow: 0 2px 8px rgba(15,23,42,0.1); border-color: var(--pa-border); }
 .pa-cal-cell.empty { background: transparent; pointer-events: none; }
 .pa-cal-cell.selected { outline: 2px solid var(--pa-accent); outline-offset: 1px; transform: scale(1.05); }
+.pa-cal-cell.today { border: 2px solid var(--pa-accent); }
 .pa-cal-day { font-size: 9px; color: var(--pa-text3); line-height: 1; }
 .pa-cal-val { font-size: 10px; font-weight: 600; color: var(--pa-text); font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: -0.3px; }
 
