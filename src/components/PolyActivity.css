@@ -386,6 +386,14 @@
 .pa-ew-pnl.pos { color: var(--pa-green); }
 .pa-ew-pnl.neg { color: var(--pa-red); }
 
+/* market link */
+.pa-market-link {
+  cursor: pointer;
+  color: var(--pa-accent);
+  transition: text-decoration 0.1s;
+}
+.pa-market-link:hover { text-decoration: underline; }
+
 /* loading & empty */
 .pa-loading {
   display: flex;

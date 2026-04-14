@@ -7,7 +7,6 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   Line,
   Bar,
-  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -43,6 +42,14 @@ const fmtShort = (n: number | null | undefined) => {
 };
 const addrShort = (w: string) => (w.length > 12 ? w.slice(0, 6) + '...' + w.slice(-4) : w);
 const fmtDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// 点击事件名称，查询父事件链接并新 tab 打开
+const openMarket = (conditionId: string) => {
+  if (!conditionId) return;
+  sharddbAPI.getMarketURL(conditionId).then((res) => {
+    if (res.url) window.open(res.url, '_blank');
+  }).catch(() => {});
+};
 
 interface ChartPoint { date: string; daily: number; cumulative: number; volume: number; isWeekend: boolean }
 
@@ -357,12 +364,12 @@ export default function PolyActivity() {
 
   type WalletDetail = { wallet: string; pnl: number; usdc: number; records: SharddbRecordItem[] };
   const eventSummary = useMemo(() => {
-    const map = new Map<string, { title: string; totalPnl: number; totalUsdc: number; count: number; wallets: Map<string, WalletDetail> }>();
+    const map = new Map<string, { title: string; conditionId: string; totalPnl: number; totalUsdc: number; count: number; wallets: Map<string, WalletDetail> }>();
     for (const r of detailFiltered) {
       if (r.pnl == null) continue;
       const key = r.title || (r.type === 'MAKER_REBATE' ? '做市奖励' : r.token_id) || 'unknown';
       let ev = map.get(key);
-      if (!ev) { ev = { title: key, totalPnl: 0, totalUsdc: 0, count: 0, wallets: new Map() }; map.set(key, ev); }
+      if (!ev) { ev = { title: key, conditionId: r.condition_id || '', totalPnl: 0, totalUsdc: 0, count: 0, wallets: new Map() }; map.set(key, ev); }
       ev.totalPnl += r.pnl; ev.totalUsdc += r.usdc_size; ev.count++;
       const wd = ev.wallets.get(r.wallet) ?? { wallet: r.wallet, pnl: 0, usdc: 0, records: [] };
       wd.pnl += r.pnl; wd.usdc += r.usdc_size; wd.records.push(r); ev.wallets.set(r.wallet, wd);
@@ -717,33 +724,6 @@ export default function PolyActivity() {
                     </div>
                   </div>
 
-                  {/* Equity Curve */}
-                  {selectedWallet && equityCurve && equityCurve.curve.length > 0 && (
-                    <div className="pa-card" style={{ marginTop: 16 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-                        <h2 style={{ margin: 0, fontSize: 14 }}>账户资金</h2>
-                        <div style={{ fontSize: 11, color: 'var(--pa-text2)', display: 'flex', gap: 12 }}>
-                          <span>充值: <b style={{ color: 'var(--pa-green)' }}>{fmtShort(equityCurve.total_deposit)}</b></span>
-                          <span>提现: <b style={{ color: 'var(--pa-red)' }}>{fmtShort(equityCurve.total_withdraw)}</b></span>
-                          <span>PnL: <b style={{ color: equityCurve.total_pnl >= 0 ? 'var(--pa-green)' : 'var(--pa-red)' }}>{fmtShort(equityCurve.total_pnl)}</b></span>
-                        </div>
-                      </div>
-                      <div style={{ height: 200 }}>
-                        <ResponsiveContainer width="100%" height={200}>
-                          <ComposedChart data={equityCurve.curve} margin={{ top: 4, right: 12, left: 4, bottom: 4 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                            <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#94a3b8' }} stroke="#e2e8f0" />
-                            <YAxis yAxisId="left" tick={{ fontSize: 9, fill: '#94a3b8' }} stroke="#e2e8f0" tickFormatter={(v) => fmtShort(v)} />
-                            <Tooltip
-                              contentStyle={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 11, boxShadow: '0 4px 16px rgba(15,23,42,0.1)' }}
-                              formatter={(value, name) => [fmt(Number(value ?? 0)), name === 'equity' ? '权益' : '盈亏']}
-                            />
-                            <Area type="monotone" dataKey="equity" yAxisId="left" stroke="#4f46e5" strokeWidth={1.5} fill="rgba(79,70,229,0.06)" dot={false} />
-                          </ComposedChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -753,6 +733,26 @@ export default function PolyActivity() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
                     <h2 style={{ margin: 0 }}>{selectedDate} 交易明细</h2>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <button className="pa-chart-tab" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => {
+                        let text = '';
+                        if (isGroupMode) {
+                          text = '事件\t笔数\t金额\t盈亏\n' + eventSummary.map((ev) =>
+                            `${ev.title}\t${ev.count}\t${ev.totalUsdc.toFixed(2)}\t${ev.totalPnl.toFixed(2)}`
+                          ).join('\n');
+                        } else {
+                          text = '时间\t类型\t事件\t金额\t盈亏\n' + sortedDetailRecords.map((r) => {
+                            const action = r.type === 'TRADE' ? r.side : r.type;
+                            const time = new Date(r.ts * 1000).toLocaleString('zh-CN', { hour12: false });
+                            return `${time}\t${action}\t${r.title || '-'}\t${r.usdc_size.toFixed(2)}\t${r.pnl != null ? r.pnl.toFixed(2) : '-'}`;
+                          }).join('\n');
+                        }
+                        navigator.clipboard.writeText(text).then(() => {
+                          const btn = document.activeElement as HTMLButtonElement;
+                          const orig = btn.textContent;
+                          btn.textContent = '已复制';
+                          setTimeout(() => { btn.textContent = orig; }, 1500);
+                        });
+                      }}>复制</button>
                       <div className="pa-type-filters">
                         {detailAllTypes.map((t) => {
                           const hidden = hiddenTypes.has(t);
@@ -775,6 +775,7 @@ export default function PolyActivity() {
                           <table className="pa-table">
                             <thead>
                               <tr>
+                                <th>市场</th>
                                 <th>事件</th>
                                 <th style={{ textAlign: 'right' }}>笔数</th>
                                 <th style={{ textAlign: 'right' }}>金额</th>
@@ -787,6 +788,11 @@ export default function PolyActivity() {
                               {eventSummary.map((ev, i) => (
                                 <React.Fragment key={i}>
                                   <tr style={{ cursor: 'pointer' }} onClick={() => setExpandedEvent(expandedEvent === ev.title ? null : ev.title)}>
+                                    <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                                      {ev.conditionId ? (
+                                        <span className="pa-market-link" onClick={(e) => { e.stopPropagation(); openMarket(ev.conditionId); }} title={ev.conditionId}>{ev.conditionId.slice(0, 10)}...</span>
+                                      ) : '-'}
+                                    </td>
                                     <td style={{ fontSize: 12, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ev.title}>
                                       <span style={{ marginRight: 4, fontSize: 10, color: 'var(--pa-text2)' }}>{expandedEvent === ev.title ? '\u25BC' : '\u25B6'}</span>
                                       {ev.title}
@@ -796,7 +802,7 @@ export default function PolyActivity() {
                                     <td style={{ textAlign: 'right', color: ev.totalPnl >= 0 ? 'var(--pa-green)' : 'var(--pa-red)', fontWeight: 600 }}>{fmt(ev.totalPnl)}</td>
                                   </tr>
                                   {expandedEvent === ev.title && (
-                                    <tr><td colSpan={4} style={{ padding: 0 }}>
+                                    <tr><td colSpan={5} style={{ padding: 0 }}>
                                       <div className="pa-event-detail">
                                         {[...ev.wallets.values()].sort((a, b) => b.pnl - a.pnl).map((wd) => (
                                           <div key={wd.wallet} className="pa-event-wallet">
@@ -822,6 +828,7 @@ export default function PolyActivity() {
                               <tr>
                                 <th className="pa-th-sort" onClick={() => toggleDetailSort('ts')}>时间 {detailSortKey === 'ts' ? (detailSortAsc ? '\u25B2' : '\u25BC') : ''}</th>
                                 <th className="pa-th-sort" onClick={() => toggleDetailSort('type')}>类型 {detailSortKey === 'type' ? (detailSortAsc ? '\u25B2' : '\u25BC') : ''}</th>
+                                <th>市场</th>
                                 <th>事件</th>
                                 <th className="pa-th-sort" style={{ textAlign: 'right' }} onClick={() => toggleDetailSort('usdc_size')}>金额 {detailSortKey === 'usdc_size' ? (detailSortAsc ? '\u25B2' : '\u25BC') : ''}</th>
                                 <th className="pa-th-sort" style={{ textAlign: 'right' }} onClick={() => toggleDetailSort('pnl')}>盈亏 {detailSortKey === 'pnl' ? (detailSortAsc ? '\u25B2' : '\u25BC') : ''}</th>
@@ -835,7 +842,14 @@ export default function PolyActivity() {
                                   <tr key={`${r.ts}-${i}`}>
                                     <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{new Date(r.ts * 1000).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
                                     <td className={typeClass} style={{ fontWeight: 500 }}>{action}</td>
-                                    <td style={{ fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.title || (r.type === 'MAKER_REBATE' ? '做市奖励' : '')}>{r.title || (r.type === 'MAKER_REBATE' ? '做市奖励' : '-')}</td>
+                                    <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                                      {r.condition_id ? (
+                                        <span className="pa-market-link" onClick={() => openMarket(r.condition_id)} title={r.condition_id}>{r.condition_id.slice(0, 10)}...</span>
+                                      ) : '-'}
+                                    </td>
+                                    <td style={{ fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.title || ''}>
+                                      {r.title || (r.type === 'MAKER_REBATE' ? '做市奖励' : '-')}
+                                    </td>
                                     <td style={{ textAlign: 'right' }}>{fmt(r.usdc_size)}</td>
                                     <td style={{ textAlign: 'right', color: r.pnl != null ? (r.pnl >= 0 ? 'var(--pa-green)' : 'var(--pa-red)') : 'var(--pa-text2)' }}>{r.pnl != null ? fmt(r.pnl) : '-'}</td>
                                   </tr>

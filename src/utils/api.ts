@@ -854,6 +854,10 @@ export const sharddbAPI = {
     const response = await api.get<SharddbEquityCurveResponse>('/api/sharddb/equity_curve', { params: { wallet } });
     return response.data;
   },
+  getMarketURL: async (conditionId: string): Promise<{ url: string; slug: string }> => {
+    const response = await api.get<{ url: string; slug: string }>('/api/sharddb/market_url', { params: { condition_id: conditionId } });
+    return response.data;
+  },
   getRecords: async (params: { wallet?: string; wallets?: string; group?: string; exclude_wallets?: string; from: string; to: string }): Promise<{ list: SharddbRecordItem[]; total: number }> => {
     const response = await api.get<{ list: SharddbRecordItem[]; total: number }>('/api/sharddb/records', { params });
     return response.data;
@@ -882,6 +886,7 @@ export interface SharddbRecordItem {
   token_id: string;
   ts: number;
   transaction_hash: string;
+  condition_id: string;
   type: string;
   side: string;
   size: number;
