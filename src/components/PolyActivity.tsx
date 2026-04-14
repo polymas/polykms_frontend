@@ -395,7 +395,7 @@ export default function PolyActivity() {
 
   // Client-side total: recalculate from groups excluding _total, _ungrouped, and user-excluded
   const clientTotal = useMemo(() => {
-    const t = { pnl: 0, wallet_count: 0, total_buy: 0, total_sell: 0, wins: 0, losses: 0, open_count: 0, position_count: 0 };
+    const t = { pnl: 0, wallet_count: 0, total_buy: 0, total_sell: 0, wins: 0, losses: 0, open_count: 0, position_count: 0, total_deposit: 0, total_withdraw: 0 };
     for (const g of groups) {
       if (g.group === '_total' || g.group === '_ungrouped' || totalExcluded.has(g.group)) continue;
       t.pnl += g.pnl;
@@ -406,6 +406,8 @@ export default function PolyActivity() {
       t.losses += g.losses;
       t.open_count += g.open_count;
       t.position_count += g.position_count;
+      t.total_deposit += g.total_deposit ?? 0;
+      t.total_withdraw += g.total_withdraw ?? 0;
     }
     return t;
   }, [groups, totalExcluded]);
@@ -570,19 +572,30 @@ export default function PolyActivity() {
                     <div className="label">总盈亏</div>
                     <div className={`value${totalPnl >= 0 ? ' pos' : ' neg'}`}>{fmt(totalPnl)}</div>
                   </div>
-                  {selectedWallet && equityCurve && (
-                    <div className="pa-stat-card">
-                      <div className="label">存取款</div>
-                      <div className="value" style={{ fontSize: 16 }}>
-                        净 {fmt(equityCurve.total_deposit - equityCurve.total_withdraw)}
+                  {(() => {
+                    // 存取款数据：单钱包用 equityCurve，分组用 groups 数据
+                    let dep = 0, wit = 0, hasData = false;
+                    if (selectedWallet && equityCurve) {
+                      dep = equityCurve.total_deposit; wit = equityCurve.total_withdraw; hasData = true;
+                    } else if (selectedGroup === '_total') {
+                      dep = clientTotal.total_deposit ?? 0; wit = clientTotal.total_withdraw ?? 0; hasData = dep > 0 || wit > 0;
+                    } else if (selectedGroup && activeGroupObj) {
+                      dep = activeGroupObj.total_deposit ?? 0; wit = activeGroupObj.total_withdraw ?? 0; hasData = dep > 0 || wit > 0;
+                    }
+                    return hasData ? (
+                      <div className="pa-stat-card">
+                        <div className="label">存取款</div>
+                        <div className="value" style={{ fontSize: 16 }}>
+                          净 {fmt(dep - wit)}
+                        </div>
+                        <div className="sub">
+                          <span style={{ color: 'var(--pa-green)' }}>入 {fmtShort(dep)}</span>
+                          {' / '}
+                          <span style={{ color: 'var(--pa-red)' }}>出 {fmtShort(wit)}</span>
+                        </div>
                       </div>
-                      <div className="sub">
-                        <span style={{ color: 'var(--pa-green)' }}>入 {fmtShort(equityCurve.total_deposit)}</span>
-                        {' / '}
-                        <span style={{ color: 'var(--pa-red)' }}>出 {fmtShort(equityCurve.total_withdraw)}</span>
-                      </div>
-                    </div>
-                  )}
+                    ) : null;
+                  })()}
                   <div className="pa-stat-card">
                     <div className="label">总买入</div>
                     <div className="value">{fmtShort(summary.total_buy)}</div>

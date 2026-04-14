@@ -774,6 +774,8 @@ export interface SharddbGroupItem {
   losses: number;
   open_count: number;
   position_count: number;
+  total_deposit: number;
+  total_withdraw: number;
   wallets: string[];
 }
 
