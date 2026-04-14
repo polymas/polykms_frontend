@@ -5,7 +5,7 @@ import {
   KeyOutlined,
   MonitorOutlined,
   LogoutOutlined,
-  DashboardOutlined,
+  LineChartOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
 } from '@ant-design/icons';
@@ -13,7 +13,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import SecretManagement from './components/SecretManagement';
 import WorkerStatus from './components/WorkerStatus';
-import CustomerDashboard from './components/CustomerDashboard';
+import PolyActivity from './components/PolyActivity';
 import EnvironmentBanner from './components/EnvironmentBanner';
 import { getRole, type Role } from './utils/api';
 import './App.css';
@@ -74,7 +74,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const menuItems = useMemo(() => {
     const all: { key: string; icon: React.ReactNode; label: string; roles: Role[] }[] = [
       { key: '/secrets', icon: <KeyOutlined />, label: '密钥管理', roles: ['data_entry', 'customer', 'admin'] },
-      { key: '/dashboard', icon: <DashboardOutlined />, label: '客户看板', roles: ['customer', 'admin'] },
+      { key: '/polyactivity', icon: <LineChartOutlined />, label: '客户端看板', roles: ['customer', 'admin'] },
       { key: '/workers', icon: <MonitorOutlined />, label: '工作机状态', roles: ['admin'] },
     ];
     return all
@@ -262,11 +262,11 @@ function App() {
           }
         />
         <Route
-          path="/dashboard"
+          path="/polyactivity"
           element={
             <CustomerDashboardRoute>
               <MainLayout>
-                <CustomerDashboard />
+                <PolyActivity />
               </MainLayout>
             </CustomerDashboardRoute>
           }

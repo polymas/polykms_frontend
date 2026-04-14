@@ -496,6 +496,7 @@ export interface ActivityDailyItem {
   date: string;   // YYYY-MM-DD
   volume?: number; // 当日买入额
   profit?: number; // 当日卖出盈亏
+  cumulative_pnl?: number; // 截至该日的累计盈亏
 }
 
 export interface ActivityWalletDailyStats {
@@ -518,13 +519,6 @@ export function parseDailyProfit(d: Record<string, unknown>): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** 从 daily 项中解析出交易额 volume（仅买入），兼容字符串 */
-export function parseDailyVolume(d: Record<string, unknown>): number {
-  const raw = d?.volume as number | string | undefined;
-  if (raw === undefined || raw === null) return 0;
-  const n = typeof raw === 'string' ? parseFloat(raw) : Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : 0;
-}
 
 /** poly_activity 每日统计请求体（批量接口） */
 export interface ActivityDailyStatsRequest {
@@ -563,108 +557,28 @@ export interface ActivityRecordsResponse {
   page_size: number;
 }
 
-/** 地址较多时后端返回的异步任务响应，需轮询 progress_url 获取最终结果 */
-export interface ActivityJobResponse {
-  job_id: string;
-  message: string;
-  progress_url: string;
-}
 
-function isActivityJobResponse(r: unknown): r is ActivityJobResponse {
-  if (typeof r !== 'object' || r === null) return false;
-  const o = r as Record<string, unknown>;
-  return (
-    typeof o.job_id === 'string' &&
-    typeof o.progress_url === 'string'
-  );
-}
-
-/** 兼容后端把 job 放在 data 里返回：{ data: { job_id, message, progress_url } } */
-function getJobResponseIfAny(r: unknown): ActivityJobResponse | null {
-  if (typeof r !== 'object' || r === null) return null;
-  const top = r as Record<string, unknown>;
-  if (isActivityJobResponse(top)) return top;
-  if (top.data && typeof top.data === 'object' && top.data !== null && isActivityJobResponse(top.data)) {
-    return top.data as ActivityJobResponse;
-  }
-  return null;
-}
-
-function isActivityDailyStatsResponse(r: unknown): r is ActivityDailyStatsResponse {
-  if (typeof r !== 'object' || r === null) return false;
-  const o = r as Record<string, unknown>;
-  return 'data' in o && Array.isArray(o.data);
-}
-
-/** 轮询时后端返回的“处理中”格式：{ id, kind, status: 'pending', total, completed, message, ... }，应继续轮询 */
-function isJobPendingResponse(r: unknown): boolean {
-  if (typeof r !== 'object' || r === null) return false;
-  const o = r as Record<string, unknown>;
-  if (o.status === 'pending') return true;
-  if (typeof o.id === 'string' && (o.kind === 'daily_stats' || o.kind != null) && !Array.isArray(o.data)) return true;
-  return false;
-}
-
-/** 轮询任务进度直至返回 data 或超时，间隔 2s，最多 5 分钟。优先识别 job：只要带 job_id/progress_url 就视为未完成并继续轮询 */
-export async function pollDailyStatsResult(progressUrl: string): Promise<ActivityDailyStatsResponse> {
-  const intervalMs = 2000;
-  const maxWaitMs = 5 * 60 * 1000;
-  const started = Date.now();
-  let attempt = 0;
-  for (; ;) {
-    attempt += 1;
-    const fullUrl = progressUrl.startsWith('http') ? progressUrl : `${activityApi.defaults.baseURL || ''}${progressUrl}`;
-    console.log('[poly_activity] 轮询请求', { attempt, url: fullUrl });
-    const res = await activityApi.get<ActivityJobResponse | ActivityDailyStatsResponse>(progressUrl);
-    const body = res.data;
-    const job = getJobResponseIfAny(body);
-    if (job) {
-      if (Date.now() - started >= maxWaitMs) {
-        throw new Error(`轮询超时: ${job.message || '请稍后重试'}`);
-      }
-      console.log('[poly_activity] 任务处理中，继续轮询', { job_id: job.job_id });
-      await new Promise((r) => setTimeout(r, intervalMs));
-      continue;
-    }
-    if (isJobPendingResponse(body)) {
-      const b = body as unknown as Record<string, unknown>;
-      const msg = b.message as string | undefined;
-      if (Date.now() - started >= maxWaitMs) {
-        throw new Error(`轮询超时: ${msg || '请稍后重试'}`);
-      }
-      console.log('[poly_activity] 任务处理中，继续轮询', { id: b.id, status: b.status });
-      await new Promise((r) => setTimeout(r, intervalMs));
-      continue;
-    }
-    if (isActivityDailyStatsResponse(body)) {
-      console.log('[poly_activity] 轮询完成，已拿到 data');
-      return body;
-    }
-    console.warn('[poly_activity] 轮询收到未知响应', body);
-    throw new Error('无效的轮询响应');
-  }
-}
 
 /** 每日交易额/利润 API（走 polykms 后端 wallet_daily_stats，需 JWT） */
 export const activityAPI = {
   /**
-   * 批量获取指定密钥在日期范围内的每日交易额与利润
-   * POST /api/v1/activity/daily-stats Body: { "secret_ids": [1,2,...], "from_date": "YYYY-MM-DD", "to_date": "YYYY-MM-DD" }
+   * 获取当前用户权限下所有钱包在日期范围内的每日交易额与利润
+   * POST /api/v1/activity/daily-stats Body: { "from_date": "YYYY-MM-DD", "to_date": "YYYY-MM-DD" }
+   * 后端根据登录用户角色自动确定钱包范围（admin 拿全量，普通用户拿自己的）
+   * 也可传 secret_ids 精确指定
    */
   getDailyStats: async (
-    secretIds: number[],
     fromDate: string,
-    toDate: string
+    toDate: string,
+    secretIds?: number[]
   ): Promise<ActivityDailyStatsResponse> => {
-    if (secretIds.length === 0) {
-      return { data: [] };
-    }
-    const uniqSecretIds = [...new Set(secretIds.filter((id) => Number.isInteger(id) && id > 0))];
-    const body: ActivityDailyStatsRequest = {
-      secret_ids: uniqSecretIds,
+    const body: Record<string, unknown> = {
       from_date: fromDate,
       to_date: toDate,
     };
+    if (secretIds && secretIds.length > 0) {
+      body.secret_ids = [...new Set(secretIds.filter((id) => Number.isInteger(id) && id > 0))];
+    }
     const response = await api.post<ActivityDailyStatsResponse>('/api/v1/activity/daily-stats', body);
     return response.data;
   },
@@ -730,34 +644,250 @@ export const dashboardAPI = {
     const response = await api.post<{ message: string }>('/api/v1/snapshots/daily/trigger');
     return response.data;
   },
-};
 
-// 订单相关类型定义
-export interface ModifyLimitOrderRequest {
-  ip: string;
-  token_id: string;
-  price: number;
-  size_rate?: number; // 仓位百分比（可选，默认100%），范围0-100
-}
-
-export interface ModifyLimitOrderResponse {
-  success: boolean;
-  action: 'cancel' | 'create';
-  message: string;
-  has_position: boolean;
-  has_order: boolean;
-  order_id?: string;
-  canceled_id?: string;
-}
-
-// 订单API
-export const ordersAPI = {
-  /**
-   * 改挂限价单：先查询仓位和挂单，如果有仓位有挂单就取消对应仓位挂单，如果没挂单就挂单
-   */
-  modifyLimitOrder: async (data: ModifyLimitOrderRequest): Promise<ModifyLimitOrderResponse> => {
-    const response = await api.post<ModifyLimitOrderResponse>('/api/v1/orders/modify-limit', data);
+  /** 手动触发链上数据预计算全量重算（仅管理员） */
+  triggerPrecompute: async (): Promise<{ message: string }> => {
+    const response = await api.post<{ message: string }>('/api/v1/snapshots/precompute/trigger');
     return response.data;
   },
 };
+
+// ── 链上数据：单钱包权益曲线 ──
+
+export interface OnchainDailyPoint {
+  date: string;
+  equity: number;   // cumulative PnL
+  day_pnl: number;  // daily PnL
+}
+export interface OnchainValuePoint {
+  date: string;
+  value: number;
+}
+export interface OnchainClosedEvent {
+  timestamp: number;
+  datetime: string;
+  pnl: number;
+  equity: number;
+  token_id: string;
+}
+export interface OnchainPosition {
+  token_id: string;
+  market_id: string;
+  cost: number;
+  revenue: number;
+  pnl: number;
+  pnl_pct: number;
+  buy_shares: number;
+  exit_shares: number;
+  first_tx: string;
+  last_tx: string;
+  status: string;  // OPEN / CLOSED
+}
+export interface OnchainEquitySummary {
+  total_pnl: number;
+  closed_positions: number;
+  total_positions: number;
+  wins: number;
+  losses: number;
+  open: number;
+}
+
+/** 链上库同步元信息：活动数据时间上限、游标同步时间、L3 汇总刷新时间 */
+export interface OnchainSyncMeta {
+  last_activity_ts: number;
+  data_through: string;
+  last_sync_at: string;
+  l3_last_updated: string;
+}
+
+export interface OnchainEquityResponse {
+  wallet: string;
+  label: string;
+  daily: OnchainDailyPoint[];
+  closed_events: OnchainClosedEvent[];
+  /** 未平仓成本按日曲线（后端按 l2 动作回放）；非 cumulative_value 充提净值 */
+  value_daily: OnchainValuePoint[];
+  positions: OnchainPosition[];
+  summary: OnchainEquitySummary;
+  sync_meta?: OnchainSyncMeta;
+}
+
+export const onchainAPI = {
+  /** 获取单钱包权益曲线、持仓明细等 */
+  getEquity: async (wallet: string): Promise<OnchainEquityResponse> => {
+    const response = await api.get<OnchainEquityResponse>('/api/onchain/equity', {
+      params: { wallet },
+    });
+    return response.data;
+  },
+};
+
+// ── 看板总览：一次请求返回所有钱包数据 ──
+
+export interface DashboardWalletItem {
+  secret_id: number;
+  key_name: string;
+  group: string;
+  proxy_address: string;
+  total_assets: number;
+  total_balance: number;
+  position_count: number;
+  order_count: number;
+  total_buy: number;
+  total_sell_claim: number;
+  pnl: number;
+  wins: number;
+  losses: number;
+  open_positions: number;
+  /** 链上 l3 仓位行数，与 position_count（工作机）区分 */
+  chain_position_count?: number;
+  /** 以下字段与 equity.sync_meta 同口径，便于列表展示同步时间 */
+  onchain_data_through?: string;
+  onchain_last_sync_at?: string;
+  onchain_l3_updated?: string;
+  onchain_last_activity_ts?: number;
+}
+
+export interface DashboardOverviewResponse {
+  wallets: DashboardWalletItem[];
+}
+
+export const dashboardOverviewAPI = {
+  /** 一次性获取用户权限下所有钱包的看板数据 */
+  getOverview: async (): Promise<DashboardOverviewResponse> => {
+    const response = await api.get<DashboardOverviewResponse>('/api/v1/dashboard/overview');
+    return response.data;
+  },
+};
+
+// 订单相关类型定义
+
+
+/** sharddb 分组汇总 */
+export interface SharddbGroupItem {
+  group: string;
+  wallet_count: number;
+  total_buy: number;
+  total_sell: number;
+  pnl: number;
+  wins: number;
+  losses: number;
+  open_count: number;
+  position_count: number;
+  wallets: string[];
+}
+
+/** sharddb 分组 equity 响应 */
+export interface SharddbGroupEquityResponse {
+  group: string;
+  wallet_count: number;
+  wallets: string[];
+  daily: { date: string; day_pnl: number; cum_pnl: number; volume: number }[];
+  summary: {
+    total_buy: number;
+    total_sell: number;
+    pnl: number;
+    wins: number;
+    losses: number;
+    open_count: number;
+    position_count: number;
+  };
+}
+
+/** sharddb 钱包汇总 */
+export interface SharddbWalletSummary {
+  wallet: string;
+  label: string;
+  total_buy: number;
+  total_sell: number;
+  total_claim: number;
+  pnl: number;
+  wins: number;
+  losses: number;
+  open_count: number;
+  position_count: number;
+  last_updated: string;
+}
+
+/** sharddb 单钱包 equity 响应 */
+export interface SharddbEquityResponse {
+  wallet: string;
+  label: string;
+  daily: { date: string; day_pnl: number; cum_pnl: number; volume: number }[];
+  summary: {
+    total_buy: number;
+    total_sell: number;
+    pnl: number;
+    wins: number;
+    losses: number;
+    open_count: number;
+    position_count: number;
+  };
+  sync_meta: { last_activity_ts: number; last_sync_at: string };
+}
+
+/** 分片数据库 API (sharddb, polyact_shards/) */
+export const sharddbAPI = {
+  getWallets: async (): Promise<SharddbWalletSummary[]> => {
+    const response = await api.get<SharddbWalletSummary[]>('/api/sharddb/wallets');
+    return response.data;
+  },
+  getGroups: async (): Promise<SharddbGroupItem[]> => {
+    const response = await api.get<SharddbGroupItem[]>('/api/sharddb/groups');
+    return response.data;
+  },
+  getEquity: async (wallet: string): Promise<SharddbEquityResponse> => {
+    const response = await api.get<SharddbEquityResponse>('/api/sharddb/equity', { params: { wallet } });
+    return response.data;
+  },
+  getGroupEquity: async (group: string): Promise<SharddbGroupEquityResponse> => {
+    const response = await api.get<SharddbGroupEquityResponse>('/api/sharddb/group_equity', { params: { group } });
+    return response.data;
+  },
+  triggerSync: async (wallet: string): Promise<{ message: string }> => {
+    const response = await api.post<{ message: string }>(`/api/sharddb/sync?wallet=${encodeURIComponent(wallet)}`);
+    return response.data;
+  },
+  getEquityCurve: async (wallet: string): Promise<SharddbEquityCurveResponse> => {
+    const response = await api.get<SharddbEquityCurveResponse>('/api/sharddb/equity_curve', { params: { wallet } });
+    return response.data;
+  },
+  getRecords: async (params: { wallet?: string; wallets?: string; group?: string; exclude_wallets?: string; from: string; to: string }): Promise<{ list: SharddbRecordItem[]; total: number }> => {
+    const response = await api.get<{ list: SharddbRecordItem[]; total: number }>('/api/sharddb/records', { params });
+    return response.data;
+  },
+};
+
+export interface SharddbEquityCurvePoint {
+  date: string;
+  deposit: number;
+  withdraw: number;
+  pnl: number;
+  equity: number;
+}
+
+export interface SharddbEquityCurveResponse {
+  wallet: string;
+  curve: SharddbEquityCurvePoint[];
+  total_deposit: number;
+  total_withdraw: number;
+  total_pnl: number;
+  current_equity: number;
+}
+
+export interface SharddbRecordItem {
+  wallet: string;
+  token_id: string;
+  ts: number;
+  transaction_hash: string;
+  type: string;
+  side: string;
+  size: number;
+  usdc_size: number;
+  price: number;
+  pnl?: number;
+  title: string;
+  outcome: string;
+  date: string;
+}
 

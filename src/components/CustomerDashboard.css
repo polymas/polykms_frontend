@@ -1,439 +1,544 @@
-/* 客户看板（颜色 token 见 App.css :root，与全站深色一致） */
+/* ── 客户看板：仿 onchain_data/web 暗色主题布局 ── */
+:root {
+  --dash-bg: #0d1117;
+  --dash-card: #161b22;
+  --dash-border: #30363d;
+  --dash-text: #e6edf3;
+  --dash-text2: #8b949e;
+  --dash-green: #3fb950;
+  --dash-red: #f85149;
+  --dash-blue: #58a6ff;
+  --dash-purple: #bc8cff;
+  --dash-orange: #d29922;
+}
 
-/* 整体布局 */
-.polydash-dashboard {
-  background: var(--polydash-bg);
+.polydash-root {
+  background: var(--dash-bg);
+  color: var(--dash-text);
   min-height: 100vh;
-  color: var(--polydash-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+}
+.polydash-root * { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* header */
+.polydash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--dash-border);
+}
+.polydash-header h1 { font-size: 20px; font-weight: 600; }
+.polydash-header .stats { color: var(--dash-text2); font-size: 14px; }
+
+/* layout: sidebar + main */
+.polydash-layout {
+  display: flex;
+  gap: 20px;
+  height: calc(100vh - 60px);
+  padding: 0 20px 20px;
 }
 
-.polydash-dashboard.dashboard-layout {
-  min-height: 60vh;
+/* ── sidebar ── */
+.polydash-sidebar {
+  width: 420px;
+  min-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
 }
 
-/* 左侧分组选择栏 */
-.polydash-dashboard .dashboard-sidebar {
-  background: var(--polydash-bg-sidebar);
-  border-right: 1px solid var(--polydash-border);
+/* view toggle */
+.polydash-view-toggle {
+  display: flex;
+  background: var(--dash-bg);
+  border: 1px solid var(--dash-border);
+  border-radius: 6px;
+  overflow: hidden;
 }
-
-.polydash-dashboard .dashboard-sidebar-header {
-  border-bottom-color: var(--polydash-border);
-}
-
-.polydash-dashboard .dashboard-sidebar-title {
-  color: var(--polydash-text);
-  font-size: 15px;
-}
-
-.polydash-dashboard .dashboard-sidebar-toggle {
-  color: var(--polydash-text-muted);
-}
-
-.polydash-dashboard .dashboard-sidebar-toggle:hover {
-  color: var(--polydash-accent);
-}
-
-.polydash-dashboard .dashboard-sidebar-item {
-  color: var(--polydash-text-muted);
-}
-
-.polydash-dashboard .dashboard-sidebar-item:hover {
-  background: var(--polydash-bg-sidebar-hover);
-  color: var(--polydash-text);
-}
-
-.polydash-dashboard .dashboard-sidebar-item-active {
-  background: var(--polydash-bg-sidebar-active);
-  color: var(--polydash-accent);
-  font-weight: 600;
-}
-
-.polydash-dashboard .dashboard-sidebar-item-active:hover {
-  background: var(--polydash-bg-sidebar-active);
-  color: var(--polydash-accent);
-}
-
-/* 主内容区 */
-.polydash-dashboard .dashboard-main {
-  background: var(--polydash-bg);
-  padding: 20px 24px 32px;
-}
-
-.polydash-dashboard .ant-alert {
-  border-radius: var(--polydash-radius);
-}
-
-.polydash-dashboard .ant-btn-primary {
-  background: var(--polydash-accent);
-  border-color: var(--polydash-accent);
-  border-radius: 8px;
-}
-
-/* 顶部 KPI 卡片 */
-.dashboard-kpi-row .polydash-kpi-card {
-  background: var(--polydash-bg-card);
-  border: 1px solid var(--polydash-border);
-  border-radius: var(--polydash-radius);
-  padding: 16px;
-  min-height: 88px;
-}
-
-.polydash-kpi-value {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--polydash-text);
-  letter-spacing: -0.02em;
-  line-height: 1.3;
-}
-
-.polydash-kpi-value.positive {
-  color: var(--polydash-positive);
-}
-
-.polydash-kpi-value.negative {
-  color: var(--polydash-negative);
-}
-
-.polydash-kpi-label {
-  font-size: 12px;
-  color: var(--polydash-text-muted);
-  margin-top: 4px;
+.polydash-view-toggle-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--dash-text2);
+  font-size: 13px;
+  padding: 8px;
+  cursor: pointer;
   font-weight: 500;
+  transition: all 0.15s;
 }
+.polydash-view-toggle-btn:hover { color: var(--dash-text); }
+.polydash-view-toggle-btn.active { background: var(--dash-card); color: var(--dash-blue); }
 
-/* 每日表现日历卡片 */
-.polydash-dashboard .polydash-calendar-card {
-  background: var(--polydash-bg-card) !important;
-  border: 1px solid var(--polydash-border) !important;
-  border-radius: var(--polydash-radius) !important;
+/* search */
+.polydash-search {
+  background: var(--dash-card);
+  border: 1px solid var(--dash-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--dash-text);
+  font-size: 14px;
+  width: 100%;
+  outline: none;
 }
+.polydash-search:focus { border-color: var(--dash-blue); }
 
-.polydash-dashboard .polydash-calendar-card .ant-card-head {
-  background: transparent !important;
-  border-bottom-color: var(--polydash-border) !important;
-  min-height: 48px;
+/* sort bar */
+.polydash-sort-bar { display: flex; gap: 6px; flex-wrap: wrap; }
+.polydash-sort-btn {
+  background: var(--dash-card);
+  border: 1px solid var(--dash-border);
+  border-radius: 4px;
+  color: var(--dash-text2);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
 }
+.polydash-sort-btn:hover { color: var(--dash-text); }
+.polydash-sort-btn.active { color: var(--dash-blue); border-color: var(--dash-blue); }
 
-.polydash-dashboard .polydash-calendar-card .ant-card-head-title {
-  color: var(--polydash-text) !important;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.polydash-dashboard .polydash-calendar-card .ant-card-body {
-  background: transparent !important;
-  padding: 16px;
-}
-
-.polydash-dashboard .polydash-calendar-card .ant-card-extra {
+/* wallet list */
+.polydash-wallet-list {
+  flex: 1;
+  overflow-y: auto;
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 4px;
 }
+.polydash-wallet-list::-webkit-scrollbar { width: 6px; }
+.polydash-wallet-list::-webkit-scrollbar-track { background: transparent; }
+.polydash-wallet-list::-webkit-scrollbar-thumb { background: var(--dash-border); border-radius: 3px; }
 
-.polydash-daily-actions {
+/* wallet item */
+.polydash-witem {
+  background: var(--dash-card);
+  border: 1px solid var(--dash-border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  cursor: pointer;
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.polydash-month-btn {
-  color: var(--polydash-text-muted);
-}
-
-.polydash-month-btn:hover:not(:disabled) {
-  color: var(--polydash-accent);
-}
-
-.polydash-month-label {
-  color: var(--polydash-text-muted);
+  transition: border-color 0.15s;
   font-size: 13px;
 }
-
-.polydash-section-title {
-  color: var(--polydash-text);
-}
-
-/* 日历表格 - 深色日格 */
-.polydash-daily-calendar table {
-  width: 100%;
-  border-collapse: collapse;
+.polydash-witem:hover { border-color: var(--dash-blue); }
+.polydash-witem.active { border-color: var(--dash-blue); background: #1c2333; }
+.polydash-witem .wname { font-weight: 500; }
+.polydash-witem .waddr {
+  font-family: 'SF Mono', Consolas, monospace;
   font-size: 12px;
+  color: var(--dash-text2);
 }
-
-.polydash-daily-calendar thead th {
-  color: var(--polydash-text-muted) !important;
-  font-weight: 600;
-  font-size: 11px;
-  text-align: center;
-  padding: 8px 4px !important;
-  border: none !important;
-  background: transparent !important;
-}
-
-.polydash-daily-calendar .polydash-day-cell {
-  border: 1px solid var(--polydash-border);
-  border-radius: 8px;
-  margin: 2px;
-  background: var(--polydash-bg-elevated);
-  min-width: 52px;
-}
-
-.polydash-daily-calendar .polydash-day-cell.empty {
-  background: #f1f5f9;
-  border-color: transparent;
-}
-
-.polydash-daily-calendar .polydash-day-cell.profit {
-  background: rgba(5, 150, 105, 0.1);
-  border-color: rgba(5, 150, 105, 0.28);
-}
-
-.polydash-daily-calendar .polydash-day-cell.loss {
-  background: rgba(220, 38, 38, 0.06);
-  border-color: rgba(220, 38, 38, 0.22);
-}
-
-.polydash-daily-calendar .polydash-day-cell.today {
-  border: 2px solid var(--polydash-accent);
-  box-shadow: 0 0 0 1px var(--polydash-accent);
-}
-
-.polydash-daily-calendar .polydash-day-cell.clickable {
-  cursor: pointer;
-}
-
-.polydash-daily-calendar .polydash-day-cell.clickable:hover {
-  background: rgba(79, 70, 229, 0.08) !important;
-}
-
-.polydash-daily-calendar .polydash-day-num {
-  font-weight: 600;
-  color: var(--polydash-text-muted);
-  margin-bottom: 4px;
-  font-size: 12px;
-}
-
-.polydash-daily-calendar .polydash-day-pnl {
-  font-weight: 600;
-  font-size: 11px;
-}
-
-.polydash-daily-calendar .polydash-day-pnl.positive {
-  color: var(--polydash-positive);
-}
-
-.polydash-daily-calendar .polydash-day-pnl.negative {
-  color: var(--polydash-negative);
-}
-
-.polydash-daily-calendar .polydash-day-volume {
+.polydash-witem .wsync {
   font-size: 10px;
-  color: var(--polydash-text-muted);
-  margin-top: 2px;
+  color: var(--dash-text2);
+  opacity: 0.9;
+  margin-top: 4px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.polydash-witem .wpnl {
+  font-weight: 600;
+  font-size: 14px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.polydash-witem .wpnl.pos { color: var(--dash-green); }
+.polydash-witem .wpnl.neg { color: var(--dash-red); }
+.polydash-witem .wmeta {
+  color: var(--dash-text2);
+  font-size: 11px;
+  text-align: right;
 }
 
-.polydash-daily-calendar .polydash-day-empty {
-  color: rgba(148, 163, 184, 0.45);
+/* group badge */
+.polydash-gbadge {
+  display: inline-block;
+  background: rgba(88,166,255,0.1);
+  color: var(--dash-blue);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  margin-left: 4px;
 }
 
-/* 分组/账户卡片 - Main Wallet 风格 */
-.polydash-dashboard .polydash-account-card {
-  background: var(--polydash-bg-card) !important;
-  border: 1px solid var(--polydash-border) !important;
-  border-radius: var(--polydash-radius) !important;
-  cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.polydash-dashboard .polydash-account-card:hover {
-  border-color: rgba(79, 70, 229, 0.35) !important;
-  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
-}
-
-.polydash-dashboard .polydash-account-card .ant-card-head {
-  display: none;
-}
-
-.polydash-dashboard .polydash-account-card .ant-card-body {
-  padding: 18px !important;
-  background: transparent !important;
-}
-
-.polydash-account-header {
+/* ── main panel ── */
+.polydash-main {
+  flex: 1;
+  overflow-y: auto;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 16px;
+}
+.polydash-main::-webkit-scrollbar { width: 6px; }
+.polydash-main::-webkit-scrollbar-track { background: transparent; }
+.polydash-main::-webkit-scrollbar-thumb { background: var(--dash-border); border-radius: 3px; }
+
+/* card */
+.polydash-card {
+  background: var(--dash-card);
+  border: 1px solid var(--dash-border);
+  border-radius: 8px;
+  padding: 20px;
+}
+.polydash-sync-meta {
+  font-size: 12px;
+  color: var(--dash-text2);
+  margin: 6px 0 14px 0;
+  line-height: 1.5;
+  flex-wrap: wrap;
+}
+.polydash-sync-meta span {
+  white-space: nowrap;
 }
 
-.polydash-account-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--polydash-accent), #6366f1);
-  color: #fff;
-  font-weight: 700;
-  font-size: 16px;
+.polydash-card h2 { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+
+/* empty state */
+.polydash-empty {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-}
-
-.polydash-account-name {
-  font-weight: 600;
-  font-size: 15px;
-  color: var(--polydash-text);
-}
-
-.polydash-account-metrics {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.polydash-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.polydash-metric-label {
-  font-size: 11px;
-  color: var(--polydash-text-muted);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.polydash-metric-value {
+  height: 100%;
+  color: var(--dash-text2);
   font-size: 16px;
+}
+
+/* stats grid */
+.polydash-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.polydash-stat-box {
+  background: var(--dash-bg);
+  border-radius: 6px;
+  padding: 12px;
+}
+.polydash-stat-box .label {
+  font-size: 11px;
+  color: var(--dash-text2);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.polydash-stat-box .value {
+  font-size: 20px;
   font-weight: 700;
-  color: var(--polydash-text);
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.polydash-stat-box .value.pos { color: var(--dash-green); }
+.polydash-stat-box .value.neg { color: var(--dash-red); }
+.polydash-stat-box .polydash-stat-hint {
+  font-size: 10px;
+  color: var(--dash-text2);
+  margin-top: 4px;
+  line-height: 1.2;
+  opacity: 0.85;
 }
 
-.polydash-metric-value.positive {
-  color: var(--polydash-positive);
+/* chart tabs */
+.polydash-chart-explainer {
+  font-size: 12px;
+  color: var(--dash-text2);
+  margin: 0 0 10px 0;
+  line-height: 1.45;
 }
-
-.polydash-metric-value.negative {
-  color: var(--polydash-negative);
+.polydash-chart-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+.polydash-chart-tab {
+  background: var(--dash-bg);
+  border: 1px solid var(--dash-border);
+  border-radius: 4px;
+  color: var(--dash-text2);
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
 }
+.polydash-chart-tab:hover { color: var(--dash-text); }
+.polydash-chart-tab.active { color: var(--dash-blue); border-color: var(--dash-blue); }
 
-.polydash-dashboard .dashboard-group-card-selected {
-  border-color: rgba(79, 70, 229, 0.45) !important;
-  box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.2);
+/* chart container */
+.polydash-chart-container { position: relative; height: 350px; }
+
+/* positions table */
+.polydash-pos-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.polydash-pos-table th {
+  text-align: left;
+  color: var(--dash-text2);
+  font-weight: 500;
+  padding: 8px;
+  border-bottom: 1px solid var(--dash-border);
+  font-size: 12px;
 }
-
-/* 无数据/加载 */
-.polydash-dashboard .dashboard-card-loading {
-  min-height: 140px;
-  color: var(--polydash-text-muted);
+.polydash-pos-table td { padding: 8px; border-bottom: 1px solid var(--dash-border); }
+.polydash-pos-table tr:hover td { background: rgba(88,166,255,0.05); }
+.polydash-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
 }
+.polydash-badge-open { background: rgba(88,166,255,0.15); color: var(--dash-blue); }
+.polydash-badge-settled { background: rgba(63,185,80,0.15); color: var(--dash-green); }
+.polydash-badge-sold { background: rgba(188,140,255,0.15); color: var(--dash-purple); }
+.polydash-badge-closed { background: rgba(139,148,158,0.15); color: var(--dash-text2); }
 
-.polydash-dashboard .ant-spin-dot-item {
-  background: var(--polydash-accent);
-}
-
-/* 暂无数据提示 */
-.polydash-dashboard .ant-card {
-  background: var(--polydash-bg-card) !important;
-  border-color: var(--polydash-border) !important;
-  color: var(--polydash-text);
-}
-
-.polydash-dashboard .ant-alert-info {
-  background: rgba(79, 70, 229, 0.06) !important;
-  border-color: rgba(79, 70, 229, 0.22) !important;
-}
-
-.polydash-dashboard .ant-alert-message {
-  color: var(--polydash-text) !important;
-}
-
-.polydash-dashboard .ant-alert-description {
-  color: var(--polydash-text-muted) !important;
-}
-
-/* 布局保留 */
-.dashboard-layout {
-  display: flex;
-  min-height: 60vh;
-  gap: 0;
-}
-
-.dashboard-sidebar {
-  width: 200px;
-  min-width: 200px;
-  flex-shrink: 0;
-  padding: 12px 0;
-  transition: width 0.2s ease, min-width 0.2s ease;
-  display: flex;
-  flex-direction: column;
-}
-
-.dashboard-sidebar-collapsed {
-  width: 56px;
-  min-width: 56px;
-}
-
-.dashboard-sidebar-header {
+/* loading */
+.polydash-loading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 12px 12px;
-  margin-bottom: 8px;
+  justify-content: center;
+  height: 200px;
+  color: var(--dash-text2);
+}
+@keyframes polydash-spin { to { transform: rotate(360deg); } }
+.polydash-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--dash-border);
+  border-top-color: var(--dash-blue);
+  border-radius: 50%;
+  animation: polydash-spin 0.6s linear infinite;
+  margin-right: 8px;
 }
 
-.dashboard-sidebar-title {
-  font-weight: 600;
-  font-size: 14px;
+/* group wallets grid (in group detail) */
+.polydash-group-wallets {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 6px;
 }
-
-.dashboard-sidebar-item {
-  padding: 10px 16px;
-  margin: 2px 8px;
-  border-radius: 8px;
+.polydash-group-wallet-chip {
+  background: var(--dash-bg);
+  border: 1px solid var(--dash-border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
   cursor: pointer;
-  font-size: 14px;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: border-color 0.15s;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
 }
+.polydash-group-wallet-chip:hover { border-color: var(--dash-blue); }
 
-.dashboard-sidebar-collapsed .dashboard-sidebar-item {
-  padding: 10px;
-  text-align: center;
-  margin: 2px 8px;
+/* ── PnL Calendar (heatmap style) ── */
+.polydash-cal-stats {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
 }
-
-.dashboard-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.dashboard-calendar-cards-row {
-  align-items: stretch;
-}
-
-.dashboard-calendar-cards-row .ant-card {
+.polydash-cal-stat {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--dash-border);
+  border-radius: 10px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
+  gap: 4px;
+}
+.polydash-cal-stat .cal-stat-label {
+  font-size: 11px;
+  color: var(--dash-text2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+.polydash-cal-stat .cal-stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.3px;
+}
+.polydash-cal-stat .cal-stat-sub {
+  font-size: 11px;
+  color: var(--dash-text2);
 }
 
-.dashboard-calendar-cards-row .ant-card-body {
-  flex: 1;
-}
-
-.dashboard-cards-panel {
-  min-height: 200px;
-}
-
-.dashboard-group-card {
-  height: 100%;
+/* Calendar graph area */
+.polydash-cal-wrap { overflow-x: auto; overflow-y: visible; padding: 16px 0 8px; }
+.polydash-cal-graph { display: flex; gap: 0; align-items: flex-start; }
+.polydash-cal-day-labels {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  gap: 3px;
+  padding-right: 8px;
+  padding-top: 24px;
+  flex-shrink: 0;
+}
+.polydash-cal-day-labels span {
+  font-size: 11px;
+  color: #484f58;
+  height: 46px;
+  line-height: 46px;
+  text-align: right;
+  font-weight: 500;
+}
+.polydash-cal-weeks { display: flex; flex-direction: column; gap: 0; }
+.polydash-cal-months-row { display: flex; gap: 3px; margin-bottom: 6px; }
+.polydash-cal-month-label {
+  font-size: 11px;
+  color: #484f58;
+  text-align: left;
+  font-weight: 500;
+}
+.polydash-cal-col { display: flex; flex-direction: column; gap: 3px; }
+.polydash-cal-weeks-inner { display: flex; gap: 3px; }
+
+/* Each cell */
+.polydash-cal-cell {
+  width: 56px;
+  height: 46px;
+  border-radius: 6px;
+  position: relative;
+  cursor: default;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 1px solid transparent;
+}
+.polydash-cal-cell .cal-day-num {
+  font-size: 10px;
+  color: rgba(255,255,255,0.35);
+  line-height: 1;
+}
+.polydash-cal-cell .cal-val {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -0.3px;
+}
+.polydash-cal-cell:hover {
+  transform: scale(1.12);
+  z-index: 10;
+  box-shadow: 0 0 12px rgba(255,255,255,0.08);
+}
+.polydash-cal-cell.empty { background: transparent; pointer-events: none; border: none; }
+.polydash-cal-cell.no-data {
+  background: rgba(255,255,255,0.02);
+  border: 1px dashed rgba(255,255,255,0.06);
+}
+.polydash-cal-cell.streak-g { border-left: 2px solid rgba(63,185,80,0.5); }
+.polydash-cal-cell.streak-r { border-left: 2px solid rgba(248,81,73,0.5); }
+.polydash-cal-cell.extreme-g { box-shadow: inset 0 0 10px rgba(57,211,83,0.25); }
+.polydash-cal-cell.extreme-r { box-shadow: inset 0 0 10px rgba(248,81,73,0.25); }
+
+/* Weekly summary column */
+.polydash-cal-col.week-sum-col { justify-content: center; margin-right: 4px; }
+.polydash-cal-week-sum {
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.polydash-cal-week-sum .ws-label {
+  font-size: 8px;
+  color: rgba(255,255,255,0.25);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  line-height: 1;
+}
+.polydash-cal-week-sum .ws-val {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* Tooltip */
+.polydash-cal-tip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1c2128;
+  border: 1px solid #3d444d;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  z-index: 100;
+  color: var(--dash-text);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.3);
+  pointer-events: none;
+}
+.polydash-cal-tip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #3d444d;
+}
+.polydash-cal-cell:hover .polydash-cal-tip { display: block; }
+.polydash-cal-tip.tip-below { bottom: auto; top: calc(100% + 10px); }
+.polydash-cal-tip.tip-below::after {
+  top: auto;
+  bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: #3d444d;
+}
+.polydash-cal-tip .tip-pnl {
+  font-weight: 700;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.polydash-cal-tip .tip-date { color: #848d97; font-size: 11px; margin-top: 1px; }
+.polydash-cal-tip .tip-ctx {
+  color: #636c76;
+  font-size: 10px;
+  margin-top: 2px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 3px;
+}
+
+/* Calendar footer */
+.polydash-cal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.04);
+}
+.polydash-cal-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #484f58;
+  font-weight: 500;
+}
+.polydash-cal-legend-cell {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+.polydash-cal-footer-note {
+  font-size: 10px;
+  color: #484f58;
 }

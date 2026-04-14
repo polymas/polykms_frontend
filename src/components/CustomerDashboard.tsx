@@ -1,1068 +1,907 @@
 /**
- * 客户看板：按分组以卡片形式展示资产总览、持仓/挂单汇总与近期快照；
- * 每日利润曲线数据来自 polykms 后端 /api/v1/activity/daily-stats（wallet_daily_stats）
- * 仅 role 为 customer 或 admin 时可访问
+ * 客户看板：仿 onchain_data/web 的暗色主题布局
+ * 左侧：钱包/分组列表（搜索 + 排序）
+ * 右侧：选中钱包/分组的统计 + 图表 + PnL 日历 + 持仓明细
  */
-import { useEffect, useState } from 'react';
-import { Card, Spin, Alert, Button, Row, Col, Segmented, Table } from 'antd';
-import { MenuFoldOutlined, MenuUnfoldOutlined, LeftOutlined, RightOutlined, CalendarOutlined, LineChartOutlined } from '@ant-design/icons';
+import { useEffect, useState, useMemo } from 'react';
 import {
-  LineChart,
   Line,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  ComposedChart,
 } from 'recharts';
 import {
   dashboardAPI,
+  dashboardOverviewAPI,
   activityAPI,
+  onchainAPI,
   parseDailyProfit,
-  parseDailyVolume,
-  secretsAPI,
   getRole,
-  type GroupAggregateResponse,
-  type GroupDailySnapshotItem,
-  type Secret,
-  type ActivityRecordItem,
+  type DashboardWalletItem,
+  type OnchainEquityResponse,
+  type OnchainPosition,
 } from '../utils/api';
 import './CustomerDashboard.css';
 
-function formatMoney(v: number) {
-  if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
-  if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
-  if (v >= 1e3) return (v / 1e3).toFixed(2) + 'K';
-  return v.toFixed(2);
-}
-
-/** 总资产用：不用 K，千/万级显示完整数字，仅 M/B 缩写 */
-function formatAsset(v: number) {
-  if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
-  if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
-  return v.toFixed(2);
-}
-
-/**
- * 从 key_name 提取「字母前缀」作为分组 key：
- * - 若以数字开头 → 返回 null（该密钥不展示在卡片中）
- * - 若以字母开头 → 返回连续字母部分（a-zA-Z），如 "ev_1" -> "ev"，"prod_2" -> "prod"
- */
-function getGroupKeyFromKeyName(keyName: string): string | null {
-  const s = (keyName || '').trim();
-  if (!s.length) return null;
-  const first = s[0];
-  if (first >= '0' && first <= '9') return null;
-  const m = s.match(/^[a-zA-Z]+/);
-  return m ? m[0] : null;
-}
-
-/**
- * 按 key_name 字母前缀将密钥分组；数字前缀的 key 不展示
- * 返回：{ groupKeys: string[], groupsByKey: Record<string, Secret[]> }
- */
-function buildGroupsByKeyName(secrets: Secret[]) {
-  const groupsByKey: Record<string, Secret[]> = {};
-  for (const s of secrets) {
-    const key = getGroupKeyFromKeyName(s.key_name || '');
-    if (key === null) continue;
-    if (!groupsByKey[key]) groupsByKey[key] = [];
-    groupsByKey[key].push(s);
-  }
-  const groupKeys = Object.keys(groupsByKey).sort();
-  return { groupKeys, groupsByKey };
-}
-
-type GroupData = {
-  aggregate: GroupAggregateResponse;
-  snapshots: GroupDailySnapshotItem[];
+/* ── helpers ── */
+const fmt = (n: number | null | undefined) => {
+  if (n == null) return '-';
+  const s = n < 0 ? '-' : '';
+  const a = Math.abs(n);
+  if (a >= 1000) return s + '$' + a.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return s + '$' + a.toFixed(2);
 };
+const fmtShort = (n: number | null | undefined) => {
+  if (n == null) return '-';
+  const s = n < 0 ? '-' : '';
+  const a = Math.abs(n);
+  if (a >= 1e6) return s + '$' + (a / 1e6).toFixed(1) + 'M';
+  if (a >= 1e3) return s + '$' + (a / 1e3).toFixed(1) + 'K';
+  return s + '$' + a.toFixed(0);
+};
+const addrShort = (w: string) => w.length > 10 ? w.slice(0, 6) + '...' + w.slice(-4) : w;
 
-/** 分组每日汇总：日盈利额、日交易额、日盈利率（%） */
-type DailyPoint = { date: string; profit: number; volume: number; rate: number | null };
+/** ISO 时间格式化为本地简短可读 */
+function fmtLocalISO(iso: string | undefined): string {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  } catch {
+    return iso;
+  }
+}
 
-/** 资产变化曲线点：日期 + 累计盈亏（用于曲线图） */
-type AssetChangePoint = { date: string; cumulative: number };
-
-/** 当日交易明细按 token_id 聚合后的行类型 */
-type DayAggRow = {
-  tokenId: string;
-  typesStr: string;
-  count: number;
-  size: number;
-  usdcSize: number;
+/* ── Group aggregation type ── */
+type GroupInfo = {
+  group: string;
   pnl: number;
-  lastTs: number;
+  total_buy: number;
+  wins: number;
+  losses: number;
+  wallet_count: number;
+  total_assets: number;
+  wallets: string[];
 };
 
-const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'];
+/* ── Daily point for PnL calendar ── */
+type DailyPoint = { date: string; day_pnl: number };
 
-/** 利润日历：按周排布日期，每格显示当日利润与交易额；可选点击某日回调 */
-function ProfitCalendar({
-  curve,
-  formatMoney,
-  onDayClick,
-}: {
-  curve: DailyPoint[];
-  formatMoney: (v: number) => string;
-  onDayClick?: (date: string) => void;
-}) {
-  const dateMap = new Map<string, DailyPoint>();
-  curve.forEach((p) => dateMap.set(p.date, p));
-  const sortedDates = curve.map((p) => p.date).sort();
-  if (sortedDates.length === 0) return null;
-  const minDate = new Date(sortedDates[0] + 'T00:00:00');
-  const maxDate = new Date(sortedDates[sortedDates.length - 1] + 'T00:00:00');
-  const startPad = minDate.getDay();
-  const days: (string | null)[] = [];
-  for (let i = 0; i < startPad; i++) days.push(null);
-  const totalDays = Math.round((maxDate.getTime() - minDate.getTime()) / (24 * 60 * 60 * 1000)) + 1;
-  const toDateStr = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  for (let i = 0; i < totalDays; i++) {
-    const d = new Date(minDate);
-    d.setDate(d.getDate() + i);
-    days.push(toDateStr(d));
-  }
-  const rows: (string | null)[][] = [];
-  for (let i = 0; i < days.length; i += 7) {
-    const row = days.slice(i, i + 7);
-    while (row.length < 7) row.push(null);
-    rows.push(row);
+/* ── PnL Calendar (heatmap style, ported from onchain_data/web) ── */
+function PnlCalendar({ dailyData }: { dailyData: DailyPoint[] }) {
+  if (!dailyData || dailyData.length === 0)
+    return <div style={{ color: 'var(--dash-text2)', fontSize: 13, padding: '20px 0', textAlign: 'center' }}>No daily PnL data available</div>;
+
+  // 1. Build PnL map with gap filling
+  const pnlMap: Record<string, number> = {};
+  for (const d of dailyData) pnlMap[d.date] = d.day_pnl || 0;
+  if (dailyData.length >= 2) {
+    const f = new Date(dailyData[0].date + 'T00:00:00');
+    const l = new Date(dailyData[dailyData.length - 1].date + 'T00:00:00');
+    const c = new Date(f);
+    while (c <= l) {
+      const ds = c.toISOString().slice(0, 10);
+      if (!(ds in pnlMap)) pnlMap[ds] = 0;
+      c.setDate(c.getDate() + 1);
+    }
   }
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  // 2. Compute stats + streak tracking
+  const sortedDates = Object.keys(pnlMap).sort();
+  let maxAbs = 0, profitDays = 0, lossDays = 0, bestDay = 0, worstDay = 0;
+  let bestDate = '', worstDate = '', maxStreak = 0;
+  const dateStreak: Record<string, number> = {};
+  let pStreak = 0, lStreak = 0;
+  const rolling7: Record<string, number> = {};
+  const window: number[] = [];
+  let rollingSum = 0;
+
+  for (const date of sortedDates) {
+    const dp = pnlMap[date];
+    if (dp > 0) { profitDays++; pStreak++; lStreak = 0; dateStreak[date] = pStreak; }
+    else if (dp < 0) { lossDays++; lStreak++; pStreak = 0; dateStreak[date] = -lStreak; }
+    else { pStreak = 0; lStreak = 0; dateStreak[date] = 0; }
+    if (pStreak > maxStreak) maxStreak = pStreak;
+    if (dp > bestDay) { bestDay = dp; bestDate = date; }
+    if (dp < worstDay) { worstDay = dp; worstDate = date; }
+    if (Math.abs(dp) > maxAbs) maxAbs = Math.abs(dp);
+    window.push(dp); rollingSum += dp;
+    if (window.length > 7) rollingSum -= window.shift()!;
+    rolling7[date] = rollingSum / Math.min(window.length, 7);
+  }
+  const totalDays = profitDays + lossDays;
+  const winPct = totalDays > 0 ? (profitDays / totalDays * 100).toFixed(0) : '0';
+  const absVals = sortedDates.map(d => Math.abs(pnlMap[d])).filter(v => v > 0).sort((a, b) => a - b);
+  const p90 = absVals.length > 0 ? absVals[Math.floor(absVals.length * 0.9)] : maxAbs;
+  const overallAvg = sortedDates.length > 0 ? sortedDates.reduce((s, d) => s + pnlMap[d], 0) / sortedDates.length : 0;
+  const lastDate7 = sortedDates.slice(-7);
+  const recent7Avg = lastDate7.length > 0 ? lastDate7.reduce((s, d) => s + pnlMap[d], 0) / lastDate7.length : 0;
+  const momentum = recent7Avg - overallAvg;
+
+  // 3. Perceptual color (sqrt scale)
+  const greenLevels = ['#0e4429', '#006d32', '#1a8c43', '#26a641', '#39d353'];
+  const redLevels = ['#4a1e1e', '#6e2b2b', '#9e3333', '#c73a3a', '#f85149'];
+  const noDataColor = 'rgba(255,255,255,0.02)';
+  function pnlColor(val: number) {
+    if (val === 0) return noDataColor;
+    const t = maxAbs > 0 ? Math.sqrt(Math.min(Math.abs(val) / maxAbs, 1)) : 0;
+    const idx = t < 0.2 ? 0 : t < 0.4 ? 1 : t < 0.6 ? 2 : t < 0.8 ? 3 : 4;
+    return val > 0 ? greenLevels[idx] : redLevels[idx];
+  }
+
+  // 4. Build week grid
+  const firstDate = new Date(dailyData[0].date + 'T00:00:00');
+  const lastDate = new Date(dailyData[dailyData.length - 1].date + 'T00:00:00');
+  const start = new Date(firstDate);
+  const dow = start.getDay();
+  start.setDate(start.getDate() - (dow === 0 ? 6 : dow - 1));
+  const end = new Date(lastDate);
+  const edow = end.getDay();
+  if (edow !== 0) end.setDate(end.getDate() + (7 - edow));
+
+  type WeekDay = { date: string; pnl: number | undefined; month: number; day: number };
+  const weeks: WeekDay[][] = [];
+  const cur = new Date(start);
+  let weekDays: WeekDay[] = [];
+  while (cur <= end) {
+    const dateStr = cur.toISOString().slice(0, 10);
+    weekDays.push({ date: dateStr, pnl: pnlMap[dateStr], month: cur.getMonth(), day: cur.getDate() });
+    if (weekDays.length === 7) { weeks.push(weekDays); weekDays = []; }
+    cur.setDate(cur.getDate() + 1);
+  }
+  if (weekDays.length) weeks.push(weekDays);
+
+  // 5. Month labels
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthLabels: { col: number; label: string }[] = [];
+  let lastMonth = -1;
+  for (let wi = 0; wi < weeks.length; wi++) {
+    const firstDayOfWeek = weeks[wi].find(d => d.day <= 7) || weeks[wi][0];
+    const m = firstDayOfWeek.month;
+    if (m !== lastMonth && firstDayOfWeek.day <= 7) {
+      lastMonth = m;
+      monthLabels.push({ col: wi * 2 + 1, label: monthNames[m] });
+    }
+  }
+
+  function cellVal(v: number) {
+    if (v === 0) return '0.00';
+    const abs = Math.abs(v);
+    const s = abs >= 10000 ? (abs / 1000).toFixed(0) + 'k' : abs >= 1000 ? (abs / 1000).toFixed(1) + 'k' : abs.toFixed(2);
+    return v < 0 ? '-' + s : s;
+  }
+
+  const momColor = momentum >= 0 ? 'var(--dash-green)' : 'var(--dash-red)';
+  const momArrow = momentum >= 0 ? '\u2191' : '\u2193';
+  const momLabel = Math.abs(momentum) < 0.01 ? 'Flat' : `${momArrow} ${Math.abs(momentum).toFixed(2)}/d`;
+
   return (
-    <div className="polydash-daily-calendar" style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-        <thead>
-          <tr>
-            {WEEKDAY_LABELS.map((l) => (
-              <th key={l} style={{ padding: '6px 4px', fontWeight: 600, width: '14.28%' }}>
-                {l}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, ri) => (
-            <tr key={ri}>
-              {row.map((date, ci) => {
-                const point = date ? dateMap.get(date) : null;
-                const isEmpty = !date;
-                const profit = point?.profit ?? 0;
-                const volume = point?.volume ?? 0;
-                const dayNum = date ? new Date(date).getDate() : '';
-                const isToday = date === todayStr;
+    <>
+      {/* Stat cards */}
+      <div className="polydash-cal-stats">
+        <div className="polydash-cal-stat">
+          <span className="cal-stat-label">Day Win Rate</span>
+          <span className="cal-stat-value" style={{ color: +winPct >= 50 ? 'var(--dash-green)' : 'var(--dash-red)' }}>{winPct}%</span>
+          <span className="cal-stat-sub">{profitDays} up / {lossDays} down days</span>
+        </div>
+        <div className="polydash-cal-stat">
+          <span className="cal-stat-label">Best Day</span>
+          <span className="cal-stat-value" style={{ color: 'var(--dash-green)' }}>+{fmt(bestDay)}</span>
+          <span className="cal-stat-sub">{bestDate}</span>
+        </div>
+        <div className="polydash-cal-stat">
+          <span className="cal-stat-label">Worst Day</span>
+          <span className="cal-stat-value" style={{ color: 'var(--dash-red)' }}>{fmt(worstDay)}</span>
+          <span className="cal-stat-sub">{worstDate}</span>
+        </div>
+        <div className="polydash-cal-stat">
+          <span className="cal-stat-label">Best Streak</span>
+          <span className="cal-stat-value" style={{ color: 'var(--dash-green)' }}>{maxStreak}d</span>
+          <span className="cal-stat-sub">consecutive wins</span>
+        </div>
+        <div className="polydash-cal-stat">
+          <span className="cal-stat-label">Momentum</span>
+          <span className="cal-stat-value" style={{ color: momColor }}>{momLabel}</span>
+          <span className="cal-stat-sub">7d avg vs overall</span>
+        </div>
+      </div>
+
+      {/* Heatmap */}
+      <div className="polydash-cal-wrap">
+        <div className="polydash-cal-graph">
+          <div className="polydash-cal-day-labels">
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(l => <span key={l}>{l}</span>)}
+          </div>
+          <div className="polydash-cal-weeks">
+            <div className="polydash-cal-months-row" style={{ display: 'grid', gridTemplateColumns: `repeat(${weeks.length * 2}, 30px)`, gap: 0, marginBottom: 6 }}>
+              {monthLabels.map((ml, i) => (
+                <span key={i} className="polydash-cal-month-label" style={{ gridColumn: ml.col }}>{ml.label}</span>
+              ))}
+            </div>
+            <div className="polydash-cal-weeks-inner">
+              {weeks.map((week, wi) => {
+                let weekSum = 0;
+                let weekActive = 0;
+                const cells = week.map((d, ri) => {
+                  const inRange = new Date(d.date + 'T00:00:00') >= firstDate && new Date(d.date + 'T00:00:00') <= lastDate;
+                  if (d.pnl !== undefined) {
+                    weekSum += d.pnl;
+                    weekActive++;
+                    const bg = pnlColor(d.pnl);
+                    const sign = d.pnl >= 0 ? '+' : '';
+                    const tipColor = d.pnl >= 0 ? '#3fb950' : '#f85149';
+                    const valColor = d.pnl > 0 ? '#c3e6c3' : d.pnl < 0 ? '#f0b0ad' : 'rgba(255,255,255,0.25)';
+                    const tipClass = ri <= 1 ? 'polydash-cal-tip tip-below' : 'polydash-cal-tip';
+                    const sk = dateStreak[d.date] || 0;
+                    let streakCls = '';
+                    if (sk >= 2) streakCls = ' streak-g';
+                    else if (sk <= -2) streakCls = ' streak-r';
+                    let extremeCls = '';
+                    if (Math.abs(d.pnl) >= p90 && d.pnl !== 0) {
+                      extremeCls = d.pnl > 0 ? ' extreme-g' : ' extreme-r';
+                    }
+                    const r7 = rolling7[d.date] || 0;
+                    const skAbs = Math.abs(sk);
+                    const ctxParts = [`7d avg: ${r7 >= 0 ? '+' : ''}${r7.toFixed(2)}`];
+                    if (skAbs >= 2) ctxParts.push(`${skAbs}-day ${sk > 0 ? 'win' : 'loss'} streak`);
+
+                    return (
+                      <div key={ri} className={`polydash-cal-cell${streakCls}${extremeCls}`} style={{ background: bg }}>
+                        <span className="cal-day-num">{d.day}</span>
+                        <span className="cal-val" style={{ color: valColor }}>{cellVal(d.pnl)}</span>
+                        <div className={tipClass}>
+                          <div className="tip-pnl" style={{ color: tipColor }}>{sign}${Math.abs(d.pnl).toFixed(2)}</div>
+                          <div className="tip-date">{d.date}</div>
+                          <div className="tip-ctx">{ctxParts.join(' \u00b7 ')}</div>
+                        </div>
+                      </div>
+                    );
+                  } else if (inRange) {
+                    return <div key={ri} className="polydash-cal-cell no-data"><span className="cal-day-num">{d.day}</span></div>;
+                  } else {
+                    return <div key={ri} className="polydash-cal-cell empty" />;
+                  }
+                });
+                const wsColor = weekActive === 0 ? 'rgba(255,255,255,0.2)' : weekSum >= 0 ? '#3fb950' : '#f85149';
                 return (
-                  <td
-                    key={ci}
-                    role={date ? 'button' : undefined}
-                    className={`polydash-day-cell ${isEmpty ? 'empty' : ''} ${profit > 0 ? 'profit' : profit < 0 ? 'loss' : ''} ${isToday ? 'today' : ''} ${date && onDayClick ? 'clickable' : ''}`}
-                    style={{ padding: '8px 4px', verticalAlign: 'top' }}
-                    onClick={date && onDayClick ? () => onDayClick(date) : undefined}
-                  >
-                    {isEmpty ? (
-                      <span className="polydash-day-empty">–</span>
-                    ) : (
-                      <>
-                        <div className="polydash-day-num">{dayNum}</div>
-                        {point && (
-                          <>
-                            <div className={`polydash-day-pnl ${profit >= 0 ? 'positive' : 'negative'}`}>
-                              {profit >= 0 ? '+' : ''}{formatMoney(profit)}
-                            </div>
-                            {volume > 0 && (
-                              <div className="polydash-day-volume">成交量 {formatMoney(volume)}</div>
-                            )}
-                          </>
-                        )}
-                      </>
-                    )}
-                  </td>
+                  <React.Fragment key={wi}>
+                    <div className="polydash-cal-col">{cells}</div>
+                    <div className="polydash-cal-col week-sum-col">
+                      <div className="polydash-cal-week-sum">
+                        <span className="ws-label">wk</span>
+                        <span className="ws-val" style={{ color: wsColor }}>{weekActive > 0 ? cellVal(weekSum) : '-'}</span>
+                      </div>
+                    </div>
+                  </React.Fragment>
                 );
               })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer legend */}
+      <div className="polydash-cal-footer">
+        <span className="polydash-cal-footer-note">sqrt color scale &middot; streak borders &middot; weekly pulse</span>
+        <div className="polydash-cal-legend">
+          <span>Loss</span>
+          {[...redLevels].reverse().map((c, i) => <div key={'r' + i} className="polydash-cal-legend-cell" style={{ background: c }} />)}
+          <div className="polydash-cal-legend-cell" style={{ background: noDataColor, border: '1px solid var(--dash-border)' }} />
+          {greenLevels.map((c, i) => <div key={'g' + i} className="polydash-cal-legend-cell" style={{ background: c }} />)}
+          <span>Profit</span>
+        </div>
+      </div>
+    </>
   );
 }
 
-export default function CustomerDashboard() {
-  /** 按 key_name 字母前缀得到的分组 key 列表（数字前缀的 key 不展示） */
-  const [groupKeys, setGroupKeys] = useState<string[]>([]);
-  /** 每个分组 key 下的密钥列表（用于请求聚合与地址→分组映射） */
-  const [groupsByKey, setGroupsByKey] = useState<Record<string, Secret[]>>({});
-  const [groupData, setGroupData] = useState<Record<string, GroupData>>({});
+/* ── Wallet Detail Panel ── */
+function WalletDetailPanel({ walletAddr, walletItem, dailyData }: {
+  walletAddr: string;
+  walletItem: DashboardWalletItem | undefined;
+  dailyData: DailyPoint[];
+}) {
+  const [equityData, setEquityData] = useState<OnchainEquityResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [triggerLoading, setTriggerLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  /** 按分组 key 聚合的每日利润/交易额/盈利率 */
-  const [dailyProfitByGroup, setDailyProfitByGroup] = useState<Record<string, DailyPoint[]>>({});
-  /** 全部的每日利润日历数据（date + profit + volume + rate） */
-  const [dailyCurveAll, setDailyCurveAll] = useState<DailyPoint[]>([]);
-  const [dailyProfitLoading, setDailyProfitLoading] = useState(false);
-  /** 当前打开的分组利润弹窗（分组 key，null 表示关闭） */
-  const [selectedGroupForChart, setSelectedGroupForChart] = useState<string | null>(null);
-  /** 左侧栏折叠状态（滑动收起） */
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  /** 每日表现：展示的月份偏移（0=当月，-1=上一月，-2=上两月） */
-  const [dailyDisplayMonthOffset, setDailyDisplayMonthOffset] = useState(0);
-  /** 每日表现：日历 / 曲线图 */
-  const [dailyViewMode, setDailyViewMode] = useState<'calendar' | 'curve'>('calendar');
-  /** 曲线图模式：总资产变化 / 盈利额变化 */
-  const [curveChartMode, setCurveChartMode] = useState<'assets' | 'profit'>('assets');
-  /** 点击日历某一天后选中的日期（YYYY-MM-DD），用于展示当日平仓交易 */
-  const [selectedDailyDate, setSelectedDailyDate] = useState<string | null>(null);
-  /** 当日平仓交易列表（卖出 SELL + 赎回 REDEEM，接口同时请求两种类型） */
-  const [dayRecords, setDayRecords] = useState<ActivityRecordItem[]>([]);
-  const [dayRecordsLoading, setDayRecordsLoading] = useState(false);
-  const isAdmin = getRole() === 'admin';
-
-  /** 根据月份偏移得到目标年-月 YYYY-MM，并过滤出该月的 curve */
-  function getCurveForMonth(curve: DailyPoint[], monthOffset: number): DailyPoint[] {
-    const d = new Date();
-    d.setMonth(d.getMonth() + monthOffset);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const prefix = `${y}-${m}-`;
-    return curve.filter((p) => p.date.startsWith(prefix)).sort((a, b) => a.date.localeCompare(b.date));
-  }
-
-  /** 当前展示月份标题，如 2026年2月 */
-  function getDisplayMonthLabel(offset: number): string {
-    const d = new Date();
-    d.setMonth(d.getMonth() + offset);
-    return `${d.getFullYear()}年${d.getMonth() + 1}月`;
-  }
-
-  /** 当前选中的分组对应的密钥 ID 列表（用于请求当日平仓） */
-  const selectedSecretIds = (() => {
-    if (selectedGroupForChart == null) {
-      const list: number[] = [];
-      groupKeys.forEach((k) => {
-        (groupsByKey[k] || []).forEach((s) => {
-          if (s.id) list.push(s.id);
-        });
-      });
-      return [...new Set(list)];
-    }
-    return (groupsByKey[selectedGroupForChart] || []).map((s) => s.id).filter(Boolean) as number[];
-  })();
+  const [chartMode, setChartMode] = useState<'daily' | 'position' | 'value'>('daily');
 
   useEffect(() => {
-    if (!selectedDailyDate || selectedSecretIds.length === 0) {
-      setDayRecords([]);
-      return;
-    }
     let cancelled = false;
-    setDayRecordsLoading(true);
-    const pageSize = 5000;
-    const fetchAll = async () => {
-      const all: ActivityRecordItem[] = [];
-      let page = 1;
-      for (;;) {
-        const res = await activityAPI.getRecords({
-          secretIds: selectedSecretIds,
-          fromDate: selectedDailyDate,
-          toDate: selectedDailyDate,
-          types: ['SELL', 'REDEEM'],
-          page,
-          pageSize,
-        });
-        if (cancelled) return;
-        const list = res.list || [];
-        all.push(...list);
-        const total = res.total ?? 0;
-        if (list.length < pageSize || page * pageSize >= total) break;
-        page += 1;
-      }
-      if (!cancelled) setDayRecords(all);
-    };
-    fetchAll()
-      .catch(() => {
-        if (!cancelled) setDayRecords([]);
-      })
-      .finally(() => {
-        if (!cancelled) setDayRecordsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedDailyDate, selectedSecretIds.join(',')]);
+    setLoading(true);
+    onchainAPI.getEquity(walletAddr)
+      .then(res => { if (!cancelled) setEquityData(res); })
+      .catch(() => { if (!cancelled) setEquityData(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [walletAddr]);
 
-  /** 按分组 key 拉取聚合数据（使用 aggregate-by-secrets；按 key 分组无历史快照） */
-  const loadData = async (keys: string[], byKey: Record<string, Secret[]>) => {
-    if (keys.length === 0) {
-      setGroupData({});
-      return;
+  const w = walletItem;
+  const s = equityData?.summary;
+  const winRate = s ? ((s.wins + s.losses) > 0 ? (s.wins / (s.wins + s.losses) * 100).toFixed(1) : '0') : '0';
+
+  // Build chart data
+  let chartData: { date: string; cumulative: number; daily?: number }[] = [];
+  if (equityData) {
+    if (chartMode === 'daily') {
+      chartData = (equityData.daily || []).map(d => ({ date: d.date, cumulative: d.equity, daily: d.day_pnl }));
+    } else if (chartMode === 'value') {
+      const vd = equityData.value_daily || [];
+      chartData = vd.map((d, i) => ({
+        date: d.date,
+        cumulative: d.value,
+        daily: i > 0 ? d.value - vd[i - 1].value : d.value,
+      }));
+    } else {
+      chartData = (equityData.closed_events || []).map(e => ({ date: e.datetime?.slice(0, 10) || '', cumulative: e.equity, daily: e.pnl }));
     }
-    setError(null);
-    const results = await Promise.allSettled(
-      keys.map(async (key) => {
-        const secrets = byKey[key] || [];
-        const secretIds = secrets.map((s) => s.id);
-        const agg = await dashboardAPI.getAggregateBySecretIDs(secretIds);
-        return [key, { aggregate: agg, snapshots: [] as GroupDailySnapshotItem[] }] as const;
-      })
-    );
-    const data: Record<string, GroupData> = {};
-    results.forEach((r, i) => {
-      if (r.status === 'fulfilled') data[keys[i]] = r.value[1];
-    });
-    setGroupData(data);
-  };
+  }
 
-  // 从密钥列表按 key_name 字母前缀分组（数字前缀不展示），拉取各分组聚合与 poly_activity 每日利润
+  // Merge daily data from activity API if no equity daily data
+  const calendarDailyData = equityData?.daily?.length
+    ? equityData.daily.map(d => ({ date: d.date, day_pnl: d.day_pnl || 0 }))
+    : dailyData;
+
+  return (
+    <>
+      {/* Stats */}
+      <div className="polydash-card">
+        <h2>
+          <span>{equityData?.label || w?.key_name || ''}</span>
+          <span style={{ fontFamily: 'monospace', color: 'var(--dash-text2)', marginLeft: 8, fontSize: 13 }}>{walletAddr}</span>
+        </h2>
+        {(equityData?.sync_meta?.data_through || equityData?.sync_meta?.last_sync_at || equityData?.sync_meta?.l3_last_updated) ? (
+          <div className="polydash-sync-meta">
+            {equityData?.sync_meta?.data_through ? (
+              <span title="Polymarket 活动数据已同步到的最近时间（UTC 存库，此处显示本地）">
+                链上数据截至：{fmtLocalISO(equityData.sync_meta.data_through)}
+              </span>
+            ) : null}
+            {equityData?.sync_meta?.last_sync_at ? (
+              <span title="上次成功推进 L1 同步游标的时间">
+                {equityData?.sync_meta?.data_through ? ' · ' : ''}游标同步：{fmtLocalISO(equityData.sync_meta.last_sync_at)}
+              </span>
+            ) : null}
+            {equityData?.sync_meta?.l3_last_updated ? (
+              <span title="L3 汇总表（盈亏/胜负等）最近刷新时间">
+                {(equityData?.sync_meta?.data_through || equityData?.sync_meta?.last_sync_at) ? ' · ' : ''}汇总刷新：{fmtLocalISO(equityData.sync_meta.l3_last_updated)}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="polydash-stats-grid">
+          <div className="polydash-stat-box">
+            <div className="label">Realized PnL</div>
+            <div className={`value ${(s?.total_pnl ?? w?.pnl ?? 0) >= 0 ? 'pos' : 'neg'}`}>{fmt(s?.total_pnl ?? w?.pnl)}</div>
+            <div className="polydash-stat-hint">same as wallet list (L3)</div>
+          </div>
+          <div className="polydash-stat-box">
+            <div className="label">Win Rate</div>
+            <div className="value">{winRate}%</div>
+            <div className="polydash-stat-hint">closed positions only</div>
+          </div>
+          <div className="polydash-stat-box">
+            <div className="label">Wins / Losses</div>
+            <div className="value">{s?.wins ?? w?.wins ?? 0} / {s?.losses ?? w?.losses ?? 0}</div>
+          </div>
+          <div className="polydash-stat-box">
+            <div className="label">Total Assets</div>
+            <div className="value">{fmt(w?.total_assets)}</div>
+          </div>
+          <div className="polydash-stat-box">
+            <div className="label">Positions</div>
+            <div className="value">{typeof w?.chain_position_count === 'number' ? w.chain_position_count : (s?.total_positions ?? w?.position_count ?? 0)}</div>
+            <div className="polydash-stat-hint">l3 position rows</div>
+          </div>
+          <div className="polydash-stat-box">
+            <div className="label">Open</div>
+            <div className="value">{w?.open_positions ?? s?.open ?? 0}</div>
+          </div>
+        </div>
+
+        {/* Chart tabs + chart */}
+        <div className="polydash-chart-tabs">
+          {(['daily', 'position', 'value'] as const).map(mode => (
+            <button key={mode} className={`polydash-chart-tab${chartMode === mode ? ' active' : ''}`} onClick={() => setChartMode(mode)}>
+              {mode === 'daily' ? 'PnL Daily' : mode === 'position' ? 'PnL Per Position' : 'Position Value'}
+            </button>
+          ))}
+        </div>
+        {chartMode === 'value' && (
+          <p className="polydash-chart-explainer">
+            每日结束时未平仓仓位的成本合计（与 L2 成本法一致，非市价）；柱为相邻两日成本变动。
+          </p>
+        )}
+        <div className="polydash-chart-container">
+          {loading ? (
+            <div className="polydash-loading"><div className="polydash-spinner" />Loading...</div>
+          ) : chartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={350}>
+              <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(48,54,61,0.5)" />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#8b949e' }} stroke="#30363d" />
+                <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#8b949e' }} stroke="#30363d" tickFormatter={v => fmtShort(v)} />
+                {(chartMode === 'daily' || chartMode === 'value') && (
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: '#8b949e' }} stroke="#30363d" tickFormatter={v => fmtShort(v)} />
+                )}
+                <Tooltip
+                  contentStyle={{ background: '#1c2333', border: '1px solid #30363d', borderRadius: 8, fontSize: 12 }}
+                  labelStyle={{ color: '#8b949e' }}
+                  formatter={(value, name) => {
+                    const v = fmt(Number(value ?? 0));
+                    if (chartMode === 'value') {
+                      return [v, name === 'cumulative' ? '未平仓成本' : '日变动'];
+                    }
+                    return [v, name === 'cumulative' ? 'Cumulative' : 'Daily'];
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="cumulative"
+                  yAxisId="left"
+                  stroke={chartMode === 'value' ? '#58a6ff' : (chartData[chartData.length - 1]?.cumulative ?? 0) >= 0 ? '#3fb950' : '#f85149'}
+                  strokeWidth={1.5}
+                  dot={false}
+                  fill={chartMode === 'value' ? 'rgba(88,166,255,0.08)' : (chartData[chartData.length - 1]?.cumulative ?? 0) >= 0 ? 'rgba(63,185,80,0.08)' : 'rgba(248,81,73,0.08)'}
+                />
+                {(chartMode === 'daily' || chartMode === 'value') && (
+                  <Bar dataKey="daily" yAxisId="right" fill={chartMode === 'value' ? 'rgba(88,166,255,0.35)' : 'rgba(63,185,80,0.4)'} />
+                )}
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="polydash-loading" style={{ height: 350 }}>No chart data</div>
+          )}
+        </div>
+      </div>
+
+      {/* PnL Calendar */}
+      <div className="polydash-card">
+        <h2>PnL Calendar</h2>
+        <PnlCalendar dailyData={calendarDailyData} />
+      </div>
+
+      {/* Positions table */}
+      {equityData?.positions && equityData.positions.length > 0 && (
+        <div className="polydash-card">
+          <h2>Positions ({equityData.positions.length})</h2>
+          <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+            <table className="polydash-pos-table">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Token ID</th>
+                  <th>Cost</th>
+                  <th>Revenue</th>
+                  <th>PnL</th>
+                  <th>PnL %</th>
+                  <th>First Tx</th>
+                </tr>
+              </thead>
+              <tbody>
+                {equityData.positions.map((p: OnchainPosition, i: number) => (
+                  <tr key={i}>
+                    <td><span className={`polydash-badge polydash-badge-${p.status?.toLowerCase() || 'closed'}`}>{p.status}</span></td>
+                    <td style={{ fontFamily: 'monospace', fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.token_id?.slice(0, 16)}...</td>
+                    <td>{fmt(p.cost)}</td>
+                    <td>{fmt(p.revenue)}</td>
+                    <td style={{ color: p.pnl >= 0 ? 'var(--dash-green)' : 'var(--dash-red)' }}>{fmt(p.pnl)}</td>
+                    <td style={{ color: p.pnl_pct >= 0 ? 'var(--dash-green)' : 'var(--dash-red)' }}>{p.pnl_pct}%</td>
+                    <td style={{ fontSize: 12, color: 'var(--dash-text2)' }}>{p.first_tx || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ── Group Detail Panel ── */
+function GroupDetailPanel({ groupInfo, allWallets, dailyData, onSelectWallet }: {
+  groupInfo: GroupInfo;
+  allWallets: DashboardWalletItem[];
+  dailyData: DailyPoint[];
+  onSelectWallet: (addr: string) => void;
+}) {
+  const g = groupInfo;
+  const totalPnl = g.pnl;
+  const winRate = (g.wins + g.losses) > 0 ? (g.wins / (g.wins + g.losses) * 100).toFixed(1) : '0';
+
+  // Build chart data from dailyData
+  let cumSum = 0;
+  const chartData = dailyData.map(d => {
+    cumSum += d.day_pnl;
+    return { date: d.date, cumulative: cumSum, daily: d.day_pnl };
+  });
+
+  return (
+    <>
+      <div className="polydash-card">
+        <h2>
+          <span>{g.group}</span>
+          <span className="polydash-gbadge">{g.wallet_count} wallets</span>
+        </h2>
+        <div className="polydash-stats-grid">
+          <div className="polydash-stat-box">
+            <div className="label">Total Realized PnL</div>
+            <div className={`value ${totalPnl >= 0 ? 'pos' : 'neg'}`}>{fmt(totalPnl)}</div>
+          </div>
+          <div className="polydash-stat-box">
+            <div className="label">Win Rate</div>
+            <div className="value">{winRate}%</div>
+          </div>
+          <div className="polydash-stat-box">
+            <div className="label">Wins / Losses</div>
+            <div className="value">{g.wins} / {g.losses}</div>
+          </div>
+          <div className="polydash-stat-box">
+            <div className="label">Total Assets</div>
+            <div className="value">{fmt(g.total_assets)}</div>
+          </div>
+          <div className="polydash-stat-box">
+            <div className="label">Wallets</div>
+            <div className="value">{g.wallet_count}</div>
+          </div>
+          <div className="polydash-stat-box">
+            <div className="label">Total Buy</div>
+            <div className="value">{fmtShort(g.total_buy)}</div>
+          </div>
+        </div>
+
+        {/* Chart */}
+        {chartData.length > 0 && (
+          <div className="polydash-chart-container">
+            <ResponsiveContainer width="100%" height={350}>
+              <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(48,54,61,0.5)" />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#8b949e' }} stroke="#30363d" />
+                <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#8b949e' }} stroke="#30363d" tickFormatter={v => fmtShort(v)} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: '#8b949e' }} stroke="#30363d" tickFormatter={v => fmtShort(v)} />
+                <Tooltip
+                  contentStyle={{ background: '#1c2333', border: '1px solid #30363d', borderRadius: 8, fontSize: 12 }}
+                  labelStyle={{ color: '#8b949e' }}
+                  formatter={(value, name) => [fmt(Number(value ?? 0)), name === 'cumulative' ? 'Cumulative PnL' : 'Daily PnL']}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="cumulative"
+                  yAxisId="left"
+                  stroke={cumSum >= 0 ? '#3fb950' : '#f85149'}
+                  strokeWidth={1.5}
+                  dot={false}
+                />
+                <Bar dataKey="daily" yAxisId="right" fill="rgba(63,185,80,0.4)" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* PnL Calendar */}
+      <div className="polydash-card">
+        <h2>PnL Calendar</h2>
+        <PnlCalendar dailyData={dailyData} />
+      </div>
+
+      {/* Wallets in group */}
+      <div className="polydash-card">
+        <h2>Wallets in {g.group} ({g.wallets.length})</h2>
+        <div className="polydash-group-wallets">
+          {g.wallets.map(addr => {
+            const w = allWallets.find(x => x.proxy_address.toLowerCase() === addr);
+            const label = w?.key_name || addr.slice(0, 10);
+            const pnl = w?.pnl ?? 0;
+            return (
+              <div key={addr} className="polydash-group-wallet-chip" onClick={() => onSelectWallet(addr)}>
+                <span>{label}</span>
+                <span style={{ color: pnl >= 0 ? 'var(--dash-green)' : 'var(--dash-red)', fontWeight: 600 }}>{fmtShort(pnl)}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ── Main Dashboard ── */
+import React from 'react';
+
+export default function CustomerDashboard() {
+  const [allWallets, setAllWallets] = useState<DashboardWalletItem[]>([]);
+  const [groups, setGroups] = useState<GroupInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentView, setCurrentView] = useState<'wallets' | 'groups'>('wallets');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('pnl_desc');
+  const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+
+  const [precomputeLoading, setPrecomputeLoading] = useState(false);
+  const isAdmin = getRole() === 'admin';
+
+  // Per-wallet daily PnL data (from activity API)
+  const [walletDailyMap, setWalletDailyMap] = useState<Map<string, DailyPoint[]>>(new Map());
+  // Per-group daily PnL data
+  const [groupDailyMap, setGroupDailyMap] = useState<Map<string, DailyPoint[]>>(new Map());
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await secretsAPI.listSecrets();
+        const overviewRes = await dashboardOverviewAPI.getOverview();
         if (cancelled) return;
-        const secrets = res.secrets || [];
-        const { groupKeys: keys, groupsByKey: byKey } = buildGroupsByKeyName(secrets);
-        setGroupKeys(keys);
-        setGroupsByKey(byKey);
-        await loadData(keys, byKey);
+        const wallets = overviewRes.wallets || [];
+        setAllWallets(wallets);
 
-        // 按 key 分组：仅对 key_name 以字母开头的密钥，用 secret_id 请求每日利润并归到对应 groupKey
-        const secretIdToGroupKey = new Map<number, string>();
-        for (const s of secrets) {
-          const key = getGroupKeyFromKeyName(s.key_name || '');
-          if (key !== null && s.id) {
-            secretIdToGroupKey.set(s.id, key);
-          }
+        // Build groups
+        const byKey: Record<string, DashboardWalletItem[]> = {};
+        for (const w of wallets) {
+          if (!w.group) continue;
+          if (!byKey[w.group]) byKey[w.group] = [];
+          byKey[w.group].push(w);
         }
-        const secretIds = [...new Set(secretIdToGroupKey.keys())];
-        if (secretIds.length > 0) {
-          setDailyProfitLoading(true);
-          try {
-            const toDate = new Date();
-            const fromDate = new Date(toDate);
-            fromDate.setDate(fromDate.getDate() - 90);
-            const fromStr = fromDate.toISOString().slice(0, 10);
-            const toStr = toDate.toISOString().slice(0, 10);
-            const statsRes = await activityAPI.getDailyStats(secretIds, fromStr, toStr);
-            if (cancelled) return;
-            const byDate = new Map<string, number>();
-            const byDateVolume = new Map<string, number>();
-            const byGroupProfit = new Map<string, Map<string, number>>();
-            const byGroupVolume = new Map<string, Map<string, number>>();
-            const walletToSecretID = new Map<string, number>();
-            for (const s of secrets) {
-              if (s.id && s.proxy_address) {
-                walletToSecretID.set((s.proxy_address || '').toLowerCase(), s.id);
+        const groupInfos: GroupInfo[] = Object.entries(byKey).map(([key, items]) => ({
+          group: key,
+          pnl: items.reduce((s, w) => s + w.pnl, 0),
+          total_buy: items.reduce((s, w) => s + w.total_buy, 0),
+          wins: items.reduce((s, w) => s + w.wins, 0),
+          losses: items.reduce((s, w) => s + w.losses, 0),
+          wallet_count: items.length,
+          total_assets: items.reduce((s, w) => s + w.total_assets, 0),
+          wallets: items.map(w => w.proxy_address.toLowerCase()),
+        })).sort((a, b) => b.pnl - a.pnl);
+        setGroups(groupInfos);
+
+        // Fetch daily stats (no secret_ids needed, backend auto-resolves by user role)
+        if (wallets.length > 0) {
+          const toDate = new Date();
+          const fromDate = new Date(toDate);
+          fromDate.setDate(fromDate.getDate() - 90);
+          const statsRes = await activityAPI.getDailyStats(fromDate.toISOString().slice(0, 10), toDate.toISOString().slice(0, 10));
+          if (cancelled) return;
+
+          const addrToGroup = new Map<string, string>();
+          for (const w of wallets) {
+            if (w.proxy_address) addrToGroup.set(w.proxy_address.toLowerCase(), w.group);
+          }
+
+          const wMap = new Map<string, Map<string, number>>();
+          const gMap = new Map<string, Map<string, number>>();
+
+          for (const w of statsRes.data || []) {
+            const walletAddr = (w.wallet || '').toLowerCase();
+            const groupKey = addrToGroup.get(walletAddr);
+            for (const d of w.daily || []) {
+              const row = d as unknown as Record<string, unknown>;
+              const date = row?.date as string | undefined;
+              if (!date) continue;
+              const p = parseDailyProfit(row);
+              // Per wallet
+              if (!wMap.has(walletAddr)) wMap.set(walletAddr, new Map());
+              wMap.get(walletAddr)!.set(date, (wMap.get(walletAddr)!.get(date) ?? 0) + p);
+              // Per group
+              if (groupKey) {
+                if (!gMap.has(groupKey)) gMap.set(groupKey, new Map());
+                gMap.get(groupKey)!.set(date, (gMap.get(groupKey)!.get(date) ?? 0) + p);
               }
             }
-            for (const w of statsRes.data || []) {
-              const sid = walletToSecretID.get((w.wallet || '').toLowerCase());
-              const groupKey = sid ? secretIdToGroupKey.get(sid) : undefined;
-              for (const d of w.daily || []) {
-                const row = d as unknown as Record<string, unknown>;
-                const date = row?.date as string | undefined;
-                if (!date) continue;
-                const p = parseDailyProfit(row);
-                const vol = parseDailyVolume(row);
-                byDate.set(date, (byDate.get(date) ?? 0) + p);
-                byDateVolume.set(date, (byDateVolume.get(date) ?? 0) + vol);
-                if (groupKey) {
-                  if (!byGroupProfit.has(groupKey)) {
-                    byGroupProfit.set(groupKey, new Map());
-                    byGroupVolume.set(groupKey, new Map());
-                  }
-                  const gp = byGroupProfit.get(groupKey)!;
-                  const gv = byGroupVolume.get(groupKey)!;
-                  gp.set(date, (gp.get(date) ?? 0) + p);
-                  gv.set(date, (gv.get(date) ?? 0) + vol);
-                }
-              }
-            }
-            const allDates = new Set([...byDate.keys(), ...byDateVolume.keys()]);
-            const curveAll: DailyPoint[] = [...allDates]
-              .map((date) => {
-                const profit = byDate.get(date) ?? 0;
-                const volume = byDateVolume.get(date) ?? 0;
-                const rate = volume > 0 ? (profit / volume) * 100 : null;
-                return { date, profit, volume, rate };
-              })
-              .sort((a, b) => a.date.localeCompare(b.date));
-            setDailyCurveAll(curveAll);
-            const groupCurves: Record<string, DailyPoint[]> = {};
-            byGroupProfit.forEach((dateToProfit, gk) => {
-              const dateToVolume = byGroupVolume.get(gk)!;
-              const gDates = new Set([...dateToProfit.keys(), ...dateToVolume.keys()]);
-              groupCurves[gk] = [...gDates]
-                .map((date) => {
-                  const profit = dateToProfit.get(date) ?? 0;
-                  const volume = dateToVolume.get(date) ?? 0;
-                  const rate = volume > 0 ? (profit / volume) * 100 : null;
-                  return { date, profit, volume, rate };
-                })
-                .sort((a, b) => a.date.localeCompare(b.date));
-            });
-            setDailyProfitByGroup(groupCurves);
-          } catch (e) {
-            if (!cancelled) {
-              setDailyProfitByGroup({});
-              setDailyCurveAll([]);
-            }
-          } finally {
-            if (!cancelled) setDailyProfitLoading(false);
           }
+
+          const toDaily = (m: Map<string, number>): DailyPoint[] =>
+            [...m.entries()].map(([date, pnl]) => ({ date, day_pnl: pnl })).sort((a, b) => a.date.localeCompare(b.date));
+
+          const wDailyMap = new Map<string, DailyPoint[]>();
+          wMap.forEach((dateMap, addr) => wDailyMap.set(addr, toDaily(dateMap)));
+          setWalletDailyMap(wDailyMap);
+
+          const gDailyMap = new Map<string, DailyPoint[]>();
+          gMap.forEach((dateMap, gk) => gDailyMap.set(gk, toDaily(dateMap)));
+          setGroupDailyMap(gDailyMap);
         }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.response?.data?.error || e?.message || '加载密钥列表失败');
+      } catch {
+        // silently fail
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  const handleTriggerSnapshot = async () => {
-    setTriggerLoading(true);
-    try {
-      await dashboardAPI.triggerDailySnapshot();
-      await loadData(groupKeys, groupsByKey);
-    } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || '触发快照失败');
-    } finally {
-      setTriggerLoading(false);
-    }
+  // Global stats
+  const globalStats = useMemo(() => {
+    const totalPnl = allWallets.reduce((s, w) => s + w.pnl, 0);
+    const profitable = allWallets.filter(w => w.pnl > 0).length;
+    return `${allWallets.length} wallets | ${groups.length} groups | Realized PnL: ${fmt(totalPnl)} | Profitable: ${profitable}/${allWallets.length}`;
+  }, [allWallets, groups]);
+
+  // Sort + filter wallets
+  const filteredWallets = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    let filtered = allWallets.filter(w =>
+      w.proxy_address.toLowerCase().includes(q) || w.key_name.toLowerCase().includes(q)
+    );
+    const sorters: Record<string, (a: DashboardWalletItem, b: DashboardWalletItem) => number> = {
+      pnl_desc: (a, b) => b.pnl - a.pnl,
+      pnl_asc: (a, b) => a.pnl - b.pnl,
+      assets_desc: (a, b) => b.total_assets - a.total_assets,
+      volume_desc: (a, b) => b.total_buy - a.total_buy,
+    };
+    filtered.sort(sorters[sortBy] || sorters.pnl_desc);
+    return filtered;
+  }, [allWallets, searchQuery, sortBy]);
+
+  // Sort + filter groups
+  const filteredGroups = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    let filtered = groups.filter(g => g.group.toLowerCase().includes(q));
+    const sorters: Record<string, (a: GroupInfo, b: GroupInfo) => number> = {
+      pnl_desc: (a, b) => b.pnl - a.pnl,
+      pnl_asc: (a, b) => a.pnl - b.pnl,
+      wallets_desc: (a, b) => b.wallet_count - a.wallet_count,
+      volume_desc: (a, b) => b.total_buy - a.total_buy,
+    };
+    filtered.sort(sorters[sortBy] || sorters.pnl_desc);
+    return filtered;
+  }, [groups, searchQuery, sortBy]);
+
+  const handleSelectWallet = (addr: string) => {
+    setSelectedWallet(addr);
+    setSelectedGroup(null);
+  };
+  const handleSelectGroup = (group: string) => {
+    setSelectedGroup(group);
+    setSelectedWallet(null);
   };
 
-  if (loading) {
-    return (
-      <div style={{ textAlign: 'center', padding: 48 }}>
-        <Spin size="large" tip="加载中…" />
-      </div>
-    );
-  }
-
-  const noGroup = groupKeys.length === 0;
-
-  const mainContent = (
-    <>
-      <div style={{ marginBottom: 16 }}>
-        {error && (
-          <Alert
-            type="error"
-            message={error}
-            closable
-            onClose={() => setError(null)}
-            style={{ marginBottom: 16 }}
-          />
-        )}
-        {!noGroup && isAdmin && (
-          <Button type="primary" loading={triggerLoading} onClick={handleTriggerSnapshot} style={{ marginBottom: 16 }}>
-            触发今日快照
-          </Button>
-        )}
-      </div>
-
-      {noGroup ? (
-        <Card>
-          <Alert
-            type="info"
-            message="暂无卡片数据"
-            description="卡片按 key_name 字母前缀分组展示：以字母开头的 key（如 ev_1、prod_2）会展示，以数字开头的 key 不会展示。请确保密钥的 key_name 以字母开头。"
-          />
-        </Card>
-      ) : (
-        <>
-          {/* 顶部 KPI 卡片：总资产、总盈亏、今日盈亏、月回报率（随左侧分组切换） */}
-          {(() => {
-            const curve =
-              selectedGroupForChart == null ? dailyCurveAll : dailyProfitByGroup[selectedGroupForChart] || [];
-            // 近30日：只取 curve 中日期最近的 30 天（curve 已按 date 升序）
-            const curveLast30 = curve.slice(-30);
-            const totalProfit = curveLast30.reduce((s, p) => s + p.profit, 0);
-            const totalVolume = curveLast30.reduce((s, p) => s + p.volume, 0);
-            const monthRate = totalVolume > 0 ? (totalProfit / totalVolume) * 100 : null;
-            const todayStr = new Date().toISOString().slice(0, 10);
-            const todayPoint = curve.find((p) => p.date === todayStr);
-            const todayProfit = todayPoint?.profit ?? 0;
-            const todayVolume = todayPoint?.volume ?? 0;
-            let totalAssets = 0;
-            if (selectedGroupForChart == null) {
-              groupKeys.forEach((k) => {
-                const d = groupData[k]?.aggregate;
-                if (d) totalAssets += d.total_assets ?? 0;
-              });
-            } else {
-              totalAssets = groupData[selectedGroupForChart]?.aggregate?.total_assets ?? 0;
-            }
-            return (
-              <Row gutter={[12, 12]} className="dashboard-kpi-row" style={{ marginBottom: 16 }}>
-                <Col xs={12} md={6}>
-                  <div className="polydash-kpi-card">
-                    <div className="polydash-kpi-value">$ {formatAsset(totalAssets)}</div>
-                    <div className="polydash-kpi-label">总资产</div>
-                  </div>
-                </Col>
-                <Col xs={12} md={6}>
-                  <div className="polydash-kpi-card">
-                    <div className={`polydash-kpi-value ${totalProfit >= 0 ? 'positive' : 'negative'}`}>
-                      {totalProfit >= 0 ? '+' : ''}{formatMoney(totalProfit)}
-                    </div>
-                    <div className="polydash-kpi-label">总盈亏（近30日）</div>
-                  </div>
-                </Col>
-                <Col xs={12} md={6}>
-                  <div className="polydash-kpi-card">
-                    <div className={`polydash-kpi-value ${todayProfit >= 0 ? 'positive' : 'negative'}`}>
-                      {todayProfit >= 0 ? '+' : ''}{formatMoney(todayProfit)}
-                    </div>
-                    <div className="polydash-kpi-label">今日盈亏{todayVolume > 0 ? ` · 成交量 ${formatMoney(todayVolume)}` : ''}</div>
-                  </div>
-                </Col>
-                <Col xs={12} md={6}>
-                  <div className="polydash-kpi-card">
-<div className={`polydash-kpi-value ${monthRate != null && monthRate >= 0 ? 'positive' : 'negative'}`}>
-                                      {monthRate != null ? `${monthRate >= 0 ? '+' : ''}${monthRate.toFixed(2)}%` : '–'}
-                                    </div>
-                    <div className="polydash-kpi-label">月回报率（近30日）</div>
-                  </div>
-                </Col>
-              </Row>
-            );
-          })()}
-
-          <Row gutter={[16, 16]} className="dashboard-calendar-cards-row">
-            {/* 左侧：每日表现（日历/曲线图 + 上一月/下一月） */}
-            <Col xs={24} lg={14}>
-              <Card
-                className="polydash-calendar-card"
-                title={
-                  <span className="polydash-section-title">
-                    {dailyViewMode === 'curve'
-                      ? (selectedGroupForChart == null
-                          ? (curveChartMode === 'assets' ? '总资产变化曲线 · 全部' : '盈利额变化曲线 · 全部')
-                          : (curveChartMode === 'assets' ? `总资产变化曲线 · ${selectedGroupForChart}` : `盈利额变化曲线 · ${selectedGroupForChart}`))
-                      : selectedGroupForChart == null
-                        ? '每日表现 · 全部'
-                        : `每日表现 · ${selectedGroupForChart}`}
-                    {dailyViewMode === 'calendar' && (
-                      <span className="polydash-month-label" style={{ marginLeft: 8, fontWeight: 500, opacity: 0.9 }}>
-                        {getDisplayMonthLabel(dailyDisplayMonthOffset)}
-                      </span>
-                    )}
-                    {dailyViewMode === 'curve' && (
-                      <span className="polydash-month-label" style={{ marginLeft: 8, fontWeight: 500, opacity: 0.9 }}>
-                        全部数据
-                      </span>
-                    )}
-                  </span>
-                }
-                extra={
-                  <div className="polydash-daily-actions">
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<LeftOutlined />}
-                      onClick={() => setDailyDisplayMonthOffset((o) => o - 1)}
-                      disabled={dailyDisplayMonthOffset <= -2}
-                      className="polydash-month-btn"
-                    >
-                      上一月
-                    </Button>
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<RightOutlined />}
-                      iconPosition="end"
-                      onClick={() => setDailyDisplayMonthOffset((o) => o + 1)}
-                      disabled={dailyDisplayMonthOffset >= 0}
-                      className="polydash-month-btn"
-                    >
-                      下一月
-                    </Button>
-                    <Segmented
-                      size="small"
-                      options={[
-                        { label: '日历', value: 'calendar', icon: <CalendarOutlined /> },
-                        { label: '曲线图', value: 'curve', icon: <LineChartOutlined /> },
-                      ]}
-                      value={dailyViewMode}
-                      onChange={(v) => setDailyViewMode(v === 'curve' ? 'curve' : 'calendar')}
-                      style={{ marginLeft: 8 }}
-                    />
-                    {dailyViewMode === 'curve' && (
-                      <Segmented
-                        size="small"
-                        options={[
-                          { label: '总资产变化', value: 'assets' },
-                          { label: '盈利额变化', value: 'profit' },
-                        ]}
-                        value={curveChartMode}
-                        onChange={(v) => setCurveChartMode(v === 'profit' ? 'profit' : 'assets')}
-                        style={{ marginLeft: 8 }}
-                      />
-                    )}
-                  </div>
-                }
-                size="small"
-                style={{ height: '100%' }}
-              >
-              {dailyProfitLoading ? (
-                <div style={{ minHeight: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Spin tip="加载每日利润…" />
-                </div>
-              ) : (() => {
-                const fullCurve =
-                  selectedGroupForChart == null
-                    ? dailyCurveAll
-                    : dailyProfitByGroup[selectedGroupForChart] || [];
-                const monthCurve = getCurveForMonth(fullCurve, dailyDisplayMonthOffset);
-                if (dailyViewMode === 'curve') {
-                  const sorted = [...fullCurve].sort((a, b) => a.date.localeCompare(b.date));
-                  const totalProfitInRange = sorted.reduce((s, p) => s + p.profit, 0);
-                  const isAssets = curveChartMode === 'assets';
-                  let totalAssets = 0;
-                  if (isAssets) {
-                    if (selectedGroupForChart == null) {
-                      groupKeys.forEach((k) => {
-                        const d = groupData[k]?.aggregate;
-                        if (d) totalAssets += d.total_assets ?? 0;
-                      });
-                    } else {
-                      totalAssets = groupData[selectedGroupForChart]?.aggregate?.total_assets ?? 0;
-                    }
-                  }
-                  const initialAssets = isAssets ? totalAssets - totalProfitInRange : 0;
-                  let sum = 0;
-                  const points: AssetChangePoint[] = sorted.map((p) => {
-                    sum += p.profit;
-                    return { date: p.date, cumulative: initialAssets + sum };
-                  });
-                  if (isAssets && points.length > 0 && initialAssets !== 0) {
-                    const firstDate = new Date(points[0].date);
-                    firstDate.setDate(firstDate.getDate() - 1);
-                    points.unshift({ date: firstDate.toISOString().slice(0, 10), cumulative: initialAssets });
-                  }
-                  const chartLabel = isAssets ? '资产' : '累计盈亏';
-                  return points.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={320}>
-                      <LineChart
-                        data={points}
-                        margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
-                        onClick={(e: { activeLabel?: string | number }) => {
-                          const label = e?.activeLabel;
-                          const date = label != null ? String(label) : undefined;
-                          if (date) setSelectedDailyDate(date);
-                        }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                        <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="#94a3b8" />
-                        <YAxis
-                          tick={{ fontSize: 11 }}
-                          stroke="#94a3b8"
-                          tickFormatter={(v) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}K` : String(v))}
-                        />
-                        <Tooltip
-                          contentStyle={{ background: '#1e293b', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}
-                          labelStyle={{ color: '#f1f5f9' }}
-                          formatter={(value) => [formatMoney(Number(value ?? 0)), chartLabel]}
-                          labelFormatter={(label) => `日期: ${label}（点击查看当日交易明细）`}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="cumulative"
-                          name={chartLabel}
-                          stroke="#3b82f6"
-                          strokeWidth={2}
-                          dot={{
-                            r: 4,
-                            cursor: 'pointer',
-                            onClick: (e: unknown) => {
-                              const payload = (e as { payload?: AssetChangePoint })?.payload;
-                              if (payload?.date) setSelectedDailyDate(payload.date);
-                            },
-                          }}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div style={{ minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13 }}>
-                      暂无数据
-                    </div>
-                  );
-                }
-                const calendarNode = (
-                  <ProfitCalendar
-                    curve={monthCurve}
-                    formatMoney={formatMoney}
-                    onDayClick={dailyViewMode === 'calendar' ? (date) => setSelectedDailyDate(date) : undefined}
-                  />
-                );
-                return calendarNode ?? (
-                  <div style={{ minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13 }}>
-                    该月暂无数据
-                  </div>
-                );
-              })()}
-            </Card>
-          </Col>
-          {/* 右侧：分组卡片，选全部则展示所有卡片，选某组则只展示该组一张卡 */}
-          <Col xs={24} lg={10}>
-            <div className="dashboard-cards-panel">
-              {selectedGroupForChart == null ? (
-                <Row gutter={[12, 12]}>
-                  {groupKeys.map((groupKey) => {
-                    const data = groupData[groupKey];
-                    const curve = dailyProfitByGroup[groupKey] || [];
-                    const totalProfit = curve.reduce((s, p) => s + p.profit, 0);
-                    const totalVolume = curve.reduce((s, p) => s + p.volume, 0);
-                    const totalRate = totalVolume > 0 ? (totalProfit / totalVolume) * 100 : null;
-                    return (
-                      <Col xs={24} sm={12} key={groupKey}>
-                        <Card
-                          className={`polydash-account-card dashboard-group-card${selectedGroupForChart === groupKey ? ' dashboard-group-card-selected' : ''}`}
-                          size="small"
-                          onClick={() => setSelectedGroupForChart(groupKey)}
-                        >
-                          {data ? (
-                            <>
-                              <div className="polydash-account-header">
-                                <div className="polydash-account-avatar">{groupKey.slice(0, 1).toUpperCase()}</div>
-                                <div className="polydash-account-name">{groupKey}</div>
-                              </div>
-                              <div className="polydash-account-metrics">
-                                <div className="polydash-metric">
-                                  <span className="polydash-metric-label">TOTAL VALUE</span>
-                                  <span className="polydash-metric-value">$ {formatAsset(data.aggregate.total_assets)}</span>
-                                </div>
-                                <div className="polydash-metric">
-                                  <span className="polydash-metric-label">机器数量</span>
-                                  <span className="polydash-metric-value">{data.aggregate.key_count ?? 0}</span>
-                                </div>
-                                {curve.length > 0 && (
-                                  <>
-                                    <div className="polydash-metric">
-                                      <span className="polydash-metric-label">TOTAL PNL</span>
-                                      <span className={`polydash-metric-value ${totalProfit >= 0 ? 'positive' : 'negative'}`}>
-                                        {totalProfit >= 0 ? '+' : ''}{formatMoney(totalProfit)}
-                                      </span>
-                                    </div>
-                                    <div className="polydash-metric">
-                                      <span className="polydash-metric-label">MONTHLY ROI</span>
-                                      <span className={`polydash-metric-value ${totalRate != null && totalRate >= 0 ? 'positive' : 'negative'}`}>
-                                        {totalRate != null ? `${totalRate.toFixed(2)}%` : '–'}
-                                      </span>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            </>
-                          ) : (
-                            <div className="dashboard-card-loading">
-                              <Spin tip="加载中…" />
-                            </div>
-                          )}
-                        </Card>
-                      </Col>
-                    );
-                  })}
-                </Row>
-              ) : (
-                (() => {
-                  const groupKey = selectedGroupForChart;
-                  const data = groupData[groupKey];
-                  const curve = dailyProfitByGroup[groupKey] || [];
-                  const totalProfit = curve.reduce((s, p) => s + p.profit, 0);
-                  const totalVolume = curve.reduce((s, p) => s + p.volume, 0);
-                  const totalRate = totalVolume > 0 ? (totalProfit / totalVolume) * 100 : null;
-                  return (
-                    <Card
-                      className="polydash-account-card dashboard-group-card dashboard-group-card-selected"
-                      size="small"
-                    >
-                      {data ? (
-                        <>
-                          <div className="polydash-account-header">
-                            <div className="polydash-account-avatar">{groupKey.slice(0, 1).toUpperCase()}</div>
-                            <div className="polydash-account-name">{groupKey}</div>
-                          </div>
-                          <div className="polydash-account-metrics">
-                            <div className="polydash-metric">
-                              <span className="polydash-metric-label">TOTAL VALUE</span>
-                              <span className="polydash-metric-value">$ {formatAsset(data.aggregate.total_assets)}</span>
-                            </div>
-                            <div className="polydash-metric">
-                              <span className="polydash-metric-label">机器数量</span>
-                              <span className="polydash-metric-value">{data.aggregate.key_count ?? 0}</span>
-                            </div>
-                            {curve.length > 0 && (
-                              <>
-                                <div className="polydash-metric">
-                                  <span className="polydash-metric-label">TOTAL PNL</span>
-                                  <span className={`polydash-metric-value ${totalProfit >= 0 ? 'positive' : 'negative'}`}>
-                                    {totalProfit >= 0 ? '+' : ''}{formatMoney(totalProfit)}
-                                  </span>
-                                </div>
-                                <div className="polydash-metric">
-                                  <span className="polydash-metric-label">MONTHLY ROI</span>
-                                  <span className={`polydash-metric-value ${totalRate != null && totalRate >= 0 ? 'positive' : 'negative'}`}>
-                                    {totalRate != null ? `${totalRate.toFixed(2)}%` : '–'}
-                                  </span>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </>
-                      ) : (
-                        <div className="dashboard-card-loading">
-                          <Spin tip="加载中…" />
-                        </div>
-                      )}
-                    </Card>
-                  );
-                })()
-              )}
-            </div>
-          </Col>
-        </Row>
-
-        {/* 点击日历某天后展示：当日交易明细（含所有类型，与日历利润一致） */}
-        {selectedDailyDate && (
-          <Row style={{ marginTop: 16 }}>
-            <Col span={24}>
-              <Card
-                className="polydash-calendar-card"
-                title={
-                  <span className="polydash-section-title">
-                    当日交易明细
-                    <span className="polydash-month-label" style={{ marginLeft: 8, fontWeight: 500 }}>
-                      {selectedDailyDate}
-                    </span>
-                  </span>
-                }
-                extra={
-                  <Button type="text" size="small" onClick={() => setSelectedDailyDate(null)}>
-                    关闭
-                  </Button>
-                }
-                size="small"
-              >
-                {dayRecordsLoading ? (
-                  <div style={{ minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Spin tip="加载中…" />
-                  </div>
-                ) : dayRecords.length === 0 ? (
-                  <div style={{ minHeight: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--polydash-text-muted)', fontSize: 13 }}>
-                    该日暂无交易记录
-                  </div>
-                ) : (
-                  (() => {
-                    // 仅按 token_id 聚合：归一化后同一资产一行，多钱包的份额/金额/盈亏合计
-                    const normalizeTokenId = (tid: string | undefined): string => {
-                      const s = (tid ?? '').trim().toLowerCase();
-                      return s.startsWith('0x') ? s.slice(2) : s;
-                    };
-                    const byTokenId = new Map<
-                      string,
-                      { tokenId: string; types: Set<string>; count: number; size: number; usdcSize: number; pnl: number; lastTs: number }
-                    >();
-                    const toNum = (v: unknown): number => {
-                      if (typeof v === 'number' && !Number.isNaN(v)) return v;
-                      const n = Number(v);
-                      return Number.isNaN(n) ? 0 : n;
-                    };
-                    for (const r of dayRecords) {
-                      const tidNorm = normalizeTokenId(r.token_id);
-                      let cur = byTokenId.get(tidNorm);
-                      if (!cur) {
-                        cur = {
-                          tokenId: tidNorm || (r.token_id ?? ''),
-                          types: new Set(),
-                          count: 0,
-                          size: 0,
-                          usdcSize: 0,
-                          pnl: 0,
-                          lastTs: 0,
-                        };
-                        byTokenId.set(tidNorm, cur);
-                      }
-                      cur.types.add(r.type || '');
-                      cur.count += 1;
-                      cur.size += toNum(r.size);
-                      cur.usdcSize += toNum(r.usdc_size);
-                      cur.pnl += toNum(r.pnl);
-                      cur.lastTs = Math.max(cur.lastTs, r.ts ?? 0);
-                    }
-                    const aggregated = Array.from(byTokenId.values()).map((agg) => ({
-                      ...agg,
-                      typesStr: Array.from(agg.types).filter(Boolean).sort().join(', ') || '–',
-                    }));
-                    return (
-                      <Table<DayAggRow>
-                        size="small"
-                        rowKey="tokenId"
-                        dataSource={aggregated}
-                        pagination={false}
-                        scroll={{ x: 720 }}
-                        summary={(pageData) => {
-                          if (pageData.length === 0) return null;
-                          const totalPnl = pageData.reduce((s, r) => s + (r.pnl ?? 0), 0);
-                          return (
-                            <Table.Summary fixed>
-                              <Table.Summary.Row>
-                                <Table.Summary.Cell index={0} colSpan={3} align="right">
-                                  <span style={{ fontWeight: 600 }}>合计</span>
-                                </Table.Summary.Cell>
-                                <Table.Summary.Cell index={1} align="right">
-                                  {pageData.reduce((s, r) => s + (r.count ?? 0), 0)}
-                                </Table.Summary.Cell>
-                                <Table.Summary.Cell index={2} align="right">
-                                  {(pageData.reduce((s, r) => s + (r.size ?? 0), 0)).toFixed(2)}
-                                </Table.Summary.Cell>
-                                <Table.Summary.Cell index={3} align="right">
-                                  {formatMoney(pageData.reduce((s, r) => s + (r.usdcSize ?? 0), 0))}
-                                </Table.Summary.Cell>
-                                <Table.Summary.Cell index={4} align="right">
-                                  <span className={totalPnl >= 0 ? 'polydash-positive' : 'polydash-negative'}>
-                                    {(totalPnl >= 0 ? '+' : '') + formatMoney(totalPnl)}
-                                  </span>
-                                </Table.Summary.Cell>
-                              </Table.Summary.Row>
-                            </Table.Summary>
-                          );
-                        }}
-                        columns={[
-                          {
-                            title: '最后平仓时间',
-                            dataIndex: 'lastTs',
-                            width: 160,
-                            sorter: (a, b) => (a.lastTs ?? 0) - (b.lastTs ?? 0),
-                            sortDirections: ['descend', 'ascend'],
-                            defaultSortOrder: 'descend',
-                            render: (ts: number) => (ts ? new Date(ts * 1000).toLocaleString('zh-CN') : '–'),
-                          },
-                          {
-                            title: '资产ID (token_id)',
-                            dataIndex: 'tokenId',
-                            width: 200,
-                            ellipsis: { showTitle: true },
-                            sorter: (a, b) => (a.tokenId ?? '').localeCompare(b.tokenId ?? ''),
-                            sortDirections: ['ascend', 'descend'],
-                            render: (tid: string) => tid ?? '–',
-                          },
-                          {
-                            title: '类型',
-                            dataIndex: 'typesStr',
-                            width: 100,
-                            sorter: (a, b) => (a.typesStr ?? '').localeCompare(b.typesStr ?? ''),
-                            sortDirections: ['ascend', 'descend'],
-                          },
-                          {
-                            title: '笔数',
-                            dataIndex: 'count',
-                            width: 72,
-                            align: 'right',
-                            sorter: (a, b) => (a.count ?? 0) - (b.count ?? 0),
-                            sortDirections: ['ascend', 'descend'],
-                          },
-                          {
-                            title: '份额合计',
-                            dataIndex: 'size',
-                            width: 110,
-                            align: 'right',
-                            sorter: (a, b) => (a.size ?? 0) - (b.size ?? 0),
-                            sortDirections: ['ascend', 'descend'],
-                            render: (v: number) => (v != null ? Number(v).toFixed(2) : '–'),
-                          },
-                          {
-                            title: '金额合计 (USDC)',
-                            dataIndex: 'usdcSize',
-                            width: 130,
-                            align: 'right',
-                            sorter: (a, b) => (a.usdcSize ?? 0) - (b.usdcSize ?? 0),
-                            sortDirections: ['ascend', 'descend'],
-                            render: (v: number) => (v != null ? formatMoney(v) : '–'),
-                          },
-                          {
-                            title: '盈亏合计',
-                            dataIndex: 'pnl',
-                            width: 110,
-                            align: 'right',
-                            sorter: (a, b) => (a.pnl ?? 0) - (b.pnl ?? 0),
-                            sortDirections: ['ascend', 'descend'],
-                            render: (v: number) =>
-                              v != null ? (
-                                <span className={v >= 0 ? 'polydash-positive' : 'polydash-negative'}>
-                                  {v >= 0 ? '+' : ''}{formatMoney(v)}
-                                </span>
-                              ) : '–',
-                          },
-                        ]}
-                      />
-                    );
-                  })()
-                )}
-              </Card>
-            </Col>
-          </Row>
-        )}
-
-        </>
-      )}
-    </>
-  );
-
-  if (noGroup) {
-    return (
-      <div className="polydash-dashboard" style={{ padding: 24 }}>
-        <div style={{ marginBottom: 16 }}>
-          {error && (
-            <Alert type="error" message={error} closable onClose={() => setError(null)} style={{ marginBottom: 16 }} />
-          )}
-        </div>
-        <Card>
-          <Alert
-            type="info"
-            message="暂无卡片数据"
-            description="卡片按 key_name 字母前缀分组展示：以字母开头的 key（如 ev_1、prod_2）会展示，以数字开头的 key 不会展示。请确保密钥的 key_name 以字母开头。"
-          />
-        </Card>
-      </div>
-    );
-  }
+  const walletSortBtns = [
+    { key: 'pnl_desc', label: 'PnL High' },
+    { key: 'pnl_asc', label: 'PnL Low' },
+    { key: 'assets_desc', label: 'Assets' },
+    { key: 'volume_desc', label: 'Volume' },
+  ];
+  const groupSortBtns = [
+    { key: 'pnl_desc', label: 'PnL High' },
+    { key: 'pnl_asc', label: 'PnL Low' },
+    { key: 'wallets_desc', label: 'Most Wallets' },
+    { key: 'volume_desc', label: 'Volume' },
+  ];
+  const sortBtns = currentView === 'groups' ? groupSortBtns : walletSortBtns;
 
   return (
-    <div className="polydash-dashboard dashboard-layout">
-      <aside className={`dashboard-sidebar ${sidebarCollapsed ? 'dashboard-sidebar-collapsed' : ''}`}>
-        <div className="dashboard-sidebar-header">
-          {!sidebarCollapsed && <span className="dashboard-sidebar-title">分组</span>}
-          <Button
-            type="text"
-            size="small"
-            icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="dashboard-sidebar-toggle"
-          />
+    <div className="polydash-root">
+      <header className="polydash-header">
+        <h1>Polymarket Equity Curves</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="stats">{globalStats}</div>
+          {isAdmin && (
+            <button
+              className={`polydash-sort-btn${precomputeLoading ? ' active' : ''}`}
+              style={{ padding: '6px 14px', fontSize: 13 }}
+              disabled={precomputeLoading}
+              onClick={async () => {
+                setPrecomputeLoading(true);
+                try {
+                  await dashboardAPI.triggerPrecompute();
+                  window.location.reload();
+                } catch (e: any) {
+                  alert('重算失败: ' + (e?.response?.data?.error || e?.message));
+                } finally {
+                  setPrecomputeLoading(false);
+                }
+              }}
+            >
+              {precomputeLoading ? 'Recomputing...' : 'Recompute PnL'}
+            </button>
+          )}
         </div>
-        <div
-          className={`dashboard-sidebar-item${selectedGroupForChart === null ? ' dashboard-sidebar-item-active' : ''}`}
-          onClick={() => setSelectedGroupForChart(null)}
-        >
-          {sidebarCollapsed ? '全' : '全部'}
-        </div>
-        {groupKeys.map((key) => (
-          <div
-            key={key}
-            className={`dashboard-sidebar-item${selectedGroupForChart === key ? ' dashboard-sidebar-item-active' : ''}`}
-            onClick={() => setSelectedGroupForChart(key)}
-          >
-            {sidebarCollapsed ? key.slice(0, 1) : key}
+      </header>
+      <div className="polydash-layout">
+        {/* Sidebar */}
+        <div className="polydash-sidebar">
+          <div className="polydash-view-toggle">
+            <button
+              className={`polydash-view-toggle-btn${currentView === 'wallets' ? ' active' : ''}`}
+              onClick={() => { setCurrentView('wallets'); setSearchQuery(''); setSortBy('pnl_desc'); }}
+            >Wallets</button>
+            <button
+              className={`polydash-view-toggle-btn${currentView === 'groups' ? ' active' : ''}`}
+              onClick={() => { setCurrentView('groups'); setSearchQuery(''); setSortBy('pnl_desc'); }}
+            >Groups</button>
           </div>
-        ))}
-      </aside>
-      <main className="dashboard-main">{mainContent}</main>
+          <input
+            type="text"
+            className="polydash-search"
+            placeholder={currentView === 'groups' ? 'Search groups...' : 'Search by label or address...'}
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+          <div className="polydash-sort-bar">
+            {sortBtns.map(btn => (
+              <button
+                key={btn.key}
+                className={`polydash-sort-btn${sortBy === btn.key ? ' active' : ''}`}
+                onClick={() => setSortBy(btn.key)}
+              >{btn.label}</button>
+            ))}
+          </div>
+          <div className="polydash-wallet-list">
+            {loading ? (
+              <div className="polydash-loading"><div className="polydash-spinner" />Loading wallets...</div>
+            ) : currentView === 'wallets' ? (
+              filteredWallets.map((w, i) => (
+                <div
+                  key={w.proxy_address || i}
+                  className={`polydash-witem${selectedWallet === w.proxy_address.toLowerCase() ? ' active' : ''}`}
+                  onClick={() => handleSelectWallet(w.proxy_address.toLowerCase())}
+                >
+                  <div>
+                    <div className="wname">{w.key_name || `#${i + 1}`}</div>
+                    <div className="waddr">{addrShort(w.proxy_address)}</div>
+                    {(w.onchain_data_through || w.onchain_last_sync_at || w.onchain_l3_updated) ? (
+                      <div className="wsync" title="链上库：活动数据截至 / L1 游标 / L3 汇总刷新">
+                        {[
+                          w.onchain_data_through ? `截至 ${fmtLocalISO(w.onchain_data_through)}` : null,
+                          w.onchain_last_sync_at ? `游标 ${fmtLocalISO(w.onchain_last_sync_at)}` : null,
+                          w.onchain_l3_updated ? `汇总 ${fmtLocalISO(w.onchain_l3_updated)}` : null,
+                        ].filter(Boolean).join(' · ')}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div>
+                    <div className={`wpnl ${w.pnl >= 0 ? 'pos' : 'neg'}`}>{fmt(w.pnl)}</div>
+                    <div className="wmeta">W{w.wins}/L{w.losses} | {typeof w.chain_position_count === 'number' ? w.chain_position_count : w.position_count} pos</div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              filteredGroups.map(g => (
+                <div
+                  key={g.group}
+                  className={`polydash-witem${selectedGroup === g.group ? ' active' : ''}`}
+                  onClick={() => handleSelectGroup(g.group)}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 15 }}>{g.group}</div>
+                    <div className="waddr">{g.wallet_count} wallets</div>
+                  </div>
+                  <div>
+                    <div className={`wpnl ${g.pnl >= 0 ? 'pos' : 'neg'}`}>{fmt(g.pnl)}</div>
+                    <div className="wmeta">W{g.wins}/L{g.losses}</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Main Panel */}
+        <div className="polydash-main">
+          {!selectedWallet && !selectedGroup ? (
+            <div className="polydash-empty">Select a wallet or group to view equity curve</div>
+          ) : selectedWallet ? (
+            <WalletDetailPanel
+              walletAddr={selectedWallet}
+              walletItem={allWallets.find(w => w.proxy_address.toLowerCase() === selectedWallet)}
+              dailyData={walletDailyMap.get(selectedWallet) || []}
+            />
+          ) : selectedGroup ? (
+            <GroupDetailPanel
+              groupInfo={groups.find(g => g.group === selectedGroup)!}
+              allWallets={allWallets}
+              dailyData={groupDailyMap.get(selectedGroup) || []}
+              onSelectWallet={handleSelectWallet}
+            />
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
