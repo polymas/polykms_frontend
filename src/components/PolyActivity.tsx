@@ -310,8 +310,34 @@ export default function PolyActivity() {
 
   const [hiddenChartDates, setHiddenChartDates] = useState<Set<string>>(new Set());
   useEffect(() => { setHiddenChartDates(new Set()); }, [daily]);
-  const chartData = chartDataAll.filter((d) => !hiddenChartDates.has(d.date));
-  const chartScrollRef = useCallback((el: HTMLDivElement | null) => { if (el) el.scrollLeft = el.scrollWidth; }, [chartData.length]);
+  const chartDataFiltered = chartDataAll.filter((d) => !hiddenChartDates.has(d.date));
+
+  // 虚拟滚动：只渲染可视区域内的柱子
+  const barWidth = 28;
+  const [chartScrollLeft, setChartScrollLeft] = useState(-1); // -1 = 初始化时滚到最右
+  const [chartContainerWidth, setChartContainerWidth] = useState(600);
+  const totalChartWidth = chartDataFiltered.length * barWidth;
+  const visibleBars = Math.ceil(chartContainerWidth / barWidth) + 2; // 多渲染 2 个防止边缘空白
+
+  // 计算可视范围
+  const scrollRight = chartScrollLeft < 0 ? totalChartWidth : chartScrollLeft + chartContainerWidth;
+  const visibleEnd = Math.min(chartDataFiltered.length, Math.ceil(scrollRight / barWidth));
+  const visibleStart = Math.max(0, visibleEnd - visibleBars);
+  const chartData = chartDataFiltered.slice(visibleStart, visibleEnd);
+  const paddingLeft = visibleStart * barWidth;
+
+  const chartScrollRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    setChartContainerWidth(el.clientWidth);
+    // 初始化滚到最右
+    if (chartScrollLeft < 0) {
+      el.scrollLeft = el.scrollWidth;
+      setChartScrollLeft(el.scrollLeft);
+    }
+    const onScroll = () => setChartScrollLeft(el.scrollLeft);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [chartDataFiltered.length]);
 
   // Day detail state
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -356,9 +382,11 @@ export default function PolyActivity() {
   useEffect(() => {
     if (!expandedEvent || !selectedDate) { setExpandedDetail([]); return; }
     const ev = dailyEvents.find((e) => e.title === expandedEvent);
-    if (!ev?.condition_id) return;
+    if (!ev) return;
+    const isMakerRebate = ev.title === '做市奖励';
+    if (!isMakerRebate && !ev.condition_id) return;
     setLoadingEventDetail(true);
-    sharddbAPI.getEventDetail(selectedDate, ev.condition_id)
+    sharddbAPI.getEventDetail(selectedDate, isMakerRebate ? undefined : ev.condition_id, isMakerRebate ? 'MAKER_REBATE' : undefined)
       .then((res) => setExpandedDetail(res.records || []))
       .catch(console.error)
       .finally(() => setLoadingEventDetail(false));
@@ -366,7 +394,6 @@ export default function PolyActivity() {
 
   // Reset selectedDate when wallet/group changes
   useEffect(() => { setSelectedDate(null); }, [selectedWallet, selectedGroup]);
-
 
   const activeGroupObj = groups.find((g) => g.group === selectedGroup);
 
@@ -640,8 +667,9 @@ export default function PolyActivity() {
                     <div className="pa-chart-scroll" ref={chartScrollRef}>
                       {loadingData ? (
                         <div className="pa-loading"><div className="pa-spinner" />加载中...</div>
-                      ) : chartData.length > 0 ? (
-                        <div style={{ width: Math.max(chartData.length * 28, 300), minWidth: '100%', height: '100%' }}>
+                      ) : chartDataFiltered.length > 0 ? (
+                        <div style={{ width: Math.max(totalChartWidth, chartContainerWidth), height: '100%', position: 'relative' }}>
+                          <div style={{ position: 'absolute', left: paddingLeft, width: chartData.length * barWidth, height: '100%' }}>
                           <ResponsiveContainer width="100%" height="100%">
                             <ComposedChart
                               data={chartData}
@@ -688,6 +716,7 @@ export default function PolyActivity() {
                               )}
                             </ComposedChart>
                           </ResponsiveContainer>
+                          </div>
                         </div>
                       ) : (
                         <div className="pa-empty">暂无数据</div>
@@ -783,6 +812,17 @@ export default function PolyActivity() {
                             </React.Fragment>
                           ))}
                         </tbody>
+                        <tfoot>
+                          <tr style={{ fontWeight: 600, borderTop: '2px solid var(--pa-border)' }}>
+                            <td></td>
+                            <td>合计 ({dailyEvents.length} 事件)</td>
+                            <td style={{ textAlign: 'right' }}>{dailyEvents.reduce((s, e) => s + e.count, 0)}</td>
+                            <td style={{ textAlign: 'right' }}>{fmt(dailyEvents.reduce((s, e) => s + e.total_usdc, 0))}</td>
+                            <td style={{ textAlign: 'right', color: dailyEvents.reduce((s, e) => s + e.total_pnl, 0) >= 0 ? 'var(--pa-green)' : 'var(--pa-red)' }}>
+                              {fmt(dailyEvents.reduce((s, e) => s + e.total_pnl, 0))}
+                            </td>
+                          </tr>
+                        </tfoot>
                       </table>
                     </div>
                   ) : (
