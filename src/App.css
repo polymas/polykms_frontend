@@ -179,6 +179,20 @@ body {
   max-width: 1920px;
   width: 100%;
   margin: 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.app-shell-content.pa-fullbleed {
+  padding: 0 !important;
+  max-width: none;
+  overflow: hidden;
+}
+/* 当 PolyActivity 全屏时，锁死父容器高度 */
+.app-shell-main.pa-fullbleed-main {
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
 }
 
 /* ========== 登录 / 注册 ========== */

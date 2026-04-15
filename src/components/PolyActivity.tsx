@@ -208,7 +208,7 @@ function ActivityCalendar({ daily, wallet, group, calMode, onModeChange, selecte
 
   return (
     <div className="pa-card" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button className="pa-cal-nav" onClick={prevMonth}>&lsaquo;</button>
           <h2 style={{ margin: 0, fontSize: 'var(--pa-fs-md)', minWidth: 110, textAlign: 'center' }}>{monthLabel}</h2>
@@ -276,6 +276,18 @@ export default function PolyActivity() {
   const [equityCurve, setEquityCurve] = useState<SharddbEquityCurveResponse | null>(null);
   const [walletSortAsc, setWalletSortAsc] = useState(false); // default: descending
   const [totalExcluded, setTotalExcluded] = useState<Set<string>>(new Set(['chongwebdev', '_ungrouped', 'polysporttest']));
+
+  // 挂载时让父容器去掉 padding + 锁定高度，卸载时还原
+  useEffect(() => {
+    const content = document.querySelector('.app-shell-content');
+    const main = document.querySelector('.app-shell-main');
+    if (content) content.classList.add('pa-fullbleed');
+    if (main) main.classList.add('pa-fullbleed-main');
+    return () => {
+      if (content) content.classList.remove('pa-fullbleed');
+      if (main) main.classList.remove('pa-fullbleed-main');
+    };
+  }, []);
 
   // Load groups + wallet metadata
   useEffect(() => { refreshData(); }, []);
@@ -378,7 +390,7 @@ export default function PolyActivity() {
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
   const [expandedDetail, setExpandedDetail] = useState<{ wallet: string; label: string; type: string; side: string; size: number; usdc_size: number; price: number; pnl?: number; ts: number }[]>([]);
   const [loadingEventDetail, setLoadingEventDetail] = useState(false);
-  const eventSort = useSort(dailyEvents, 'total_usdc');
+  const eventSort = useSort(dailyEvents, 'total_pnl');
   const detailSort = useSort(expandedDetail, 'pnl');
 
   // Open positions state
@@ -769,7 +781,7 @@ export default function PolyActivity() {
 
                 <div className="pa-row-right">
                   <div className="pa-card" style={{ display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <div className="pa-chart-tabs">
                         <button className={`pa-chart-tab${chartMode === 'pnl' ? ' active' : ''}`} onClick={() => setChartMode('pnl')}>盈亏</button>
                         <button className={`pa-chart-tab${chartMode === 'volume' ? ' active' : ''}`} onClick={() => setChartMode('volume')}>交易额</button>
@@ -847,7 +859,7 @@ export default function PolyActivity() {
               {/* 交易明细 / 未平仓切换（日历和图表下方，全宽，填满剩余高度） */}
               {(selectedDate || showOpenPositions) && (
                 <div className="pa-card pa-detail-card">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <div className="pa-switch" onClick={() => setShowOpenPositions((v) => !v)}>
                         <span className={!showOpenPositions ? 'active' : ''}>平仓明细</span>
