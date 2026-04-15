@@ -18,7 +18,7 @@ import EnvironmentBanner from './components/EnvironmentBanner';
 import { getRole, type Role } from './utils/api';
 import './App.css';
 
-const { Sider, Header, Content } = Layout;
+const { Sider, Content } = Layout;
 const { Text } = Typography;
 
 type AuthMode = 'login' | 'register';
@@ -123,6 +123,13 @@ function AppShell({ children }: { children: React.ReactNode }) {
             </span>
           )}
         </div>
+        <Button
+          type="text"
+          aria-label={collapsed ? '展开菜单' : '收起菜单'}
+          icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+          onClick={() => setCollapsed((c) => !c)}
+          className="app-sider-toggle"
+        />
         <Menu
           mode="inline"
           selectedKeys={[location.pathname]}
@@ -130,27 +137,23 @@ function AppShell({ children }: { children: React.ReactNode }) {
           onClick={({ key }) => navigate(String(key))}
           className="app-sider-menu"
         />
-      </Sider>
-      <Layout className="app-shell-main">
-        <Header className="app-shell-header">
+        <div className="app-sider-bottom">
+          {username && !collapsed ? (
+            <Text type="secondary" className="app-sider-user">{username}</Text>
+          ) : null}
           <Button
             type="text"
-            aria-label={collapsed ? '展开菜单' : '收起菜单'}
-            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={() => setCollapsed((c) => !c)}
-            className="app-shell-trigger"
-          />
-          <div className="app-shell-header-right">
-            {username ? (
-              <Text type="secondary" className="app-shell-user">
-                {username}
-              </Text>
-            ) : null}
-            <Button type="primary" danger icon={<LogoutOutlined />} onClick={handleLogout}>
-              退出登录
-            </Button>
-          </div>
-        </Header>
+            danger
+            icon={<LogoutOutlined />}
+            onClick={handleLogout}
+            size="small"
+            title="退出登录"
+          >
+            {!collapsed ? '退出' : null}
+          </Button>
+        </div>
+      </Sider>
+      <Layout className="app-shell-main">
         <EnvironmentBanner />
         <Content className="app-shell-content">{children}</Content>
       </Layout>

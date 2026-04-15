@@ -3,7 +3,7 @@
  * 左侧：分组列表 + 组内钱包列表
  * 右侧：统计卡片 + PnL 曲线 / Volume 图表
  */
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   Line,
   Bar,
@@ -59,7 +59,7 @@ type SummaryData = {
 };
 
 
-/* ── PnL / Volume 日历 ── */
+/* ── PnL / Volume 月历 ── */
 function ActivityCalendar({ daily, wallet, group, calMode, onModeChange, selectedDate, onSelectDate }: {
   daily: DailyItem[];
   wallet: string | null;
@@ -70,38 +70,39 @@ function ActivityCalendar({ daily, wallet, group, calMode, onModeChange, selecte
   onSelectDate: (d: string | null) => void;
 }) {
   const todayStr = fmtDate(new Date());
+  const now = new Date();
+  const [viewYear, setViewYear] = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth()); // 0-based
+
   if (!daily || daily.length === 0) return null;
 
   // Build data map
   const dataMap: Record<string, { pnl: number; volume: number }> = {};
   for (const d of daily) dataMap[d.date] = { pnl: d.day_pnl, volume: d.volume };
 
-  // Fill gaps
-  const sortedDates = Object.keys(dataMap).sort();
-  if (sortedDates.length >= 2) {
-    const c = new Date(sortedDates[0] + 'T00:00:00');
-    const last = new Date(sortedDates[sortedDates.length - 1] + 'T00:00:00');
-    while (c <= last) {
-      const ds = fmtDate(c);
-      if (!dataMap[ds]) dataMap[ds] = { pnl: 0, volume: 0 };
-      c.setDate(c.getDate() + 1);
-    }
-  }
-
-  const allDates = Object.keys(dataMap).sort();
-  const vals = allDates.map((d) => calMode === 'pnl' ? dataMap[d].pnl : dataMap[d].volume);
+  // Max abs for color scale (across all data)
+  const vals = Object.values(dataMap).map((d) => calMode === 'pnl' ? d.pnl : d.volume);
   const maxAbs = Math.max(...vals.map(Math.abs), 1);
 
   const greenLevels = ['#d1fae5', '#6ee7b7', '#34d399', '#059669'];
-  const redLevels = ['#fee2e2', '#fca5a5', '#f87171', '#dc2626'];
-  const blueLevels = ['#e0e7ff', '#a5b4fc', '#818cf8', '#4f46e5'];
+  const redLevels   = ['#fee2e2', '#fca5a5', '#f87171', '#dc2626'];
+  const blueLevels  = ['#e0e7ff', '#a5b4fc', '#818cf8', '#4f46e5'];
+  // 前两档浅色用黑字，后两档深色用白字
+  const textColors  = ['#1e293b', '#1e293b', '#ffffff', '#ffffff'];
 
-  function cellColor(val: number): string {
+  function cellBg(val: number): string {
     if (val === 0) return '#f1f5f9';
     const t = Math.sqrt(Math.min(Math.abs(val) / maxAbs, 1));
     const idx = t < 0.25 ? 0 : t < 0.5 ? 1 : t < 0.75 ? 2 : 3;
     if (calMode === 'volume') return blueLevels[idx];
     return val > 0 ? greenLevels[idx] : redLevels[idx];
+  }
+
+  function cellTextColor(val: number): string {
+    if (val === 0) return '#94a3b8';
+    const t = Math.sqrt(Math.min(Math.abs(val) / maxAbs, 1));
+    const idx = t < 0.25 ? 0 : t < 0.5 ? 1 : t < 0.75 ? 2 : 3;
+    return textColors[idx];
   }
 
   function cellText(v: number): string {
@@ -111,75 +112,93 @@ function ActivityCalendar({ daily, wallet, group, calMode, onModeChange, selecte
     return v < 0 ? '-' + s : s;
   }
 
-  const firstDate = new Date(allDates[0] + 'T00:00:00');
-  const lastDate = new Date(allDates[allDates.length - 1] + 'T00:00:00');
-  const start = new Date(firstDate);
-  const dow = start.getDay();
-  start.setDate(start.getDate() - (dow === 0 ? 6 : dow - 1));
+  // Build month grid (Mon-Sun, left to right)
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const lastDay = new Date(viewYear, viewMonth + 1, 0);
+  const startDow = firstDay.getDay(); // 0=Sun
+  const offset = startDow === 0 ? 6 : startDow - 1; // Mon-based offset
 
-  type Cell = { date: string; val: number; inRange: boolean; day: number; month: number };
-  const weeks: Cell[][] = [];
-  const cur = new Date(start);
-  let week: Cell[] = [];
-  while (cur <= lastDate || week.length > 0) {
-    const ds = fmtDate(cur);
-    const inRange = cur >= firstDate && cur <= lastDate;
+  type Cell = { date: string; val: number; inMonth: boolean; day: number };
+  const cells: Cell[] = [];
+  // padding before
+  for (let i = 0; i < offset; i++) cells.push({ date: '', val: 0, inMonth: false, day: 0 });
+  // days of month
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const ds = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const raw = dataMap[ds];
     const val = raw ? (calMode === 'pnl' ? raw.pnl : raw.volume) : 0;
-    week.push({ date: ds, val, inRange, day: cur.getDate(), month: cur.getMonth() });
-    if (week.length === 7) {
-      weeks.push(week);
-      week = [];
-      if (cur > lastDate) break;
-    }
-    cur.setDate(cur.getDate() + 1);
+    cells.push({ date: ds, val, inMonth: true, day: d });
+  }
+  // padding after to fill last row
+  while (cells.length % 7 !== 0) cells.push({ date: '', val: 0, inMonth: false, day: 0 });
+
+  const weeks: Cell[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+
+  // Monthly total
+  let monthTotal = 0;
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const ds = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const raw = dataMap[ds];
+    if (raw) monthTotal += calMode === 'pnl' ? raw.pnl : raw.volume;
   }
 
-  const monthNames = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+  const prevMonth = () => {
+    if (viewMonth === 0) { setViewYear(viewYear - 1); setViewMonth(11); }
+    else setViewMonth(viewMonth - 1);
+  };
+  const nextMonth = () => {
+    if (viewMonth === 11) { setViewYear(viewYear + 1); setViewMonth(0); }
+    else setViewMonth(viewMonth + 1);
+  };
+
+  const monthLabel = `${viewYear} 年 ${viewMonth + 1} 月`;
 
   return (
-    <>
-      <div className="pa-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h2 style={{ margin: 0 }}>{calMode === 'pnl' ? '盈亏' : '交易额'} 日历</h2>
-          <div className="pa-chart-tabs">
-            <button className={`pa-chart-tab${calMode === 'pnl' ? ' active' : ''}`} onClick={() => onModeChange('pnl')}>盈亏</button>
-            <button className={`pa-chart-tab${calMode === 'volume' ? ' active' : ''}`} onClick={() => onModeChange('volume')}>交易额</button>
-          </div>
+    <div className="pa-card" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button className="pa-cal-nav" onClick={prevMonth}>&lsaquo;</button>
+          <h2 style={{ margin: 0, fontSize: 'var(--pa-fs-md)', minWidth: 110, textAlign: 'center' }}>{monthLabel}</h2>
+          <button className="pa-cal-nav" onClick={nextMonth}>&rsaquo;</button>
         </div>
-        <div className="pa-cal-wrap">
-          <div className="pa-cal-days">
-            {['一', '二', '三', '四', '五', '六', '日'].map((d, i) => <span key={i}>{d}</span>)}
-          </div>
-          <div className="pa-cal-grid">
-            {[...weeks].reverse().map((wk, wi, arr) => (
-              <div key={wi} className="pa-cal-week">
-                {wi === 0 || wk[0].month !== arr[wi - 1]?.[0]?.month ? (
-                  <div className="pa-cal-month-label">{monthNames[wk[0].month]}</div>
-                ) : <div className="pa-cal-month-label" />}
-                {wk.map((cell, ci) => {
-                  if (!cell.inRange) return <div key={ci} className="pa-cal-cell empty" />;
-                  const isSelected = cell.date === selectedDate;
-                  return (
-                    <div
-                      key={ci}
-                      className={`pa-cal-cell${isSelected ? ' selected' : ''}${cell.date === todayStr ? ' today' : ''}`}
-                      style={{ background: isSelected ? 'var(--pa-accent)' : cellColor(cell.val) }}
-                      onClick={() => (wallet || group) && onSelectDate(isSelected ? null : cell.date)}
-                      title={`${cell.date}: ${calMode === 'pnl' ? '盈亏' : 'Vol'} ${fmt(cell.val)}`}
-                    >
-                      <span className="pa-cal-day">{cell.day}</span>
-                      {cell.val !== 0 && <span className="pa-cal-val">{cellText(cell.val)}</span>}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
+        <div className="pa-chart-tabs">
+          <button className={`pa-chart-tab${calMode === 'pnl' ? ' active' : ''}`} onClick={() => onModeChange('pnl')}>盈亏</button>
+          <button className={`pa-chart-tab${calMode === 'volume' ? ' active' : ''}`} onClick={() => onModeChange('volume')}>交易额</button>
         </div>
       </div>
-
-    </>
+      <div className="pa-cal-month" style={{ flex: 1 }}>
+        <div className="pa-cal-header">
+          {['一', '二', '三', '四', '五', '六', '日'].map((d, i) => <span key={i}>{d}</span>)}
+        </div>
+        {weeks.map((wk, wi) => (
+          <div key={wi} className="pa-cal-row">
+            {wk.map((cell, ci) => {
+              if (!cell.inMonth) return <div key={ci} className="pa-cal-cell empty" />;
+              const isSelected = cell.date === selectedDate;
+              return (
+                <div
+                  key={ci}
+                  className={`pa-cal-cell${isSelected ? ' selected' : ''}${cell.date === todayStr ? ' today' : ''}`}
+                  style={{ background: isSelected ? 'var(--pa-accent)' : cellBg(cell.val) }}
+                  onClick={() => (wallet || group) && onSelectDate(isSelected ? null : cell.date)}
+                  title={`${cell.date}: ${calMode === 'pnl' ? '盈亏' : 'Vol'} ${fmt(cell.val)}`}
+                >
+                  <span className="pa-cal-day" style={{ color: isSelected ? 'rgba(255,255,255,0.8)' : cellTextColor(cell.val) }}>{cell.day}</span>
+                  {cell.val !== 0 && <span className="pa-cal-val" style={{ color: isSelected ? '#fff' : cellTextColor(cell.val) }}>{cellText(cell.val)}</span>}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      <div className="pa-cal-footer">
+        本月{calMode === 'pnl' ? '盈亏' : '交易额'}:
+        <span style={{ color: monthTotal >= 0 ? 'var(--pa-green)' : 'var(--pa-red)', fontWeight: 600, marginLeft: 6 }}>
+          {fmt(monthTotal)}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -198,7 +217,7 @@ export default function PolyActivity() {
   const [walletLabels, setWalletLabels] = useState<Record<string, string>>({});
   const [walletPnls, setWalletPnls] = useState<Record<string, number>>({});
   const [loadingData, setLoadingData] = useState(false);
-  const [chartMode, setChartMode] = useState<'pnl' | 'volume'>('pnl');
+  const [chartMode, setChartMode] = useState<'pnl' | 'volume'>('volume');
   const [calMode, setCalMode] = useState<'pnl' | 'volume'>('pnl');
   const [equityCurve, setEquityCurve] = useState<SharddbEquityCurveResponse | null>(null);
   const [walletSortAsc, setWalletSortAsc] = useState(false); // default: descending
@@ -308,36 +327,12 @@ export default function PolyActivity() {
     }),
   [daily]);
 
+  const [chartDays, setChartDays] = useState(30);
   const [hiddenChartDates, setHiddenChartDates] = useState<Set<string>>(new Set());
-  useEffect(() => { setHiddenChartDates(new Set()); }, [daily]);
-  const chartDataFiltered = chartDataAll.filter((d) => !hiddenChartDates.has(d.date));
-
-  // 虚拟滚动：只渲染可视区域内的柱子
-  const barWidth = 28;
-  const [chartScrollLeft, setChartScrollLeft] = useState(-1); // -1 = 初始化时滚到最右
-  const [chartContainerWidth, setChartContainerWidth] = useState(600);
-  const totalChartWidth = chartDataFiltered.length * barWidth;
-  const visibleBars = Math.ceil(chartContainerWidth / barWidth) + 2; // 多渲染 2 个防止边缘空白
-
-  // 计算可视范围
-  const scrollRight = chartScrollLeft < 0 ? totalChartWidth : chartScrollLeft + chartContainerWidth;
-  const visibleEnd = Math.min(chartDataFiltered.length, Math.ceil(scrollRight / barWidth));
-  const visibleStart = Math.max(0, visibleEnd - visibleBars);
-  const chartData = chartDataFiltered.slice(visibleStart, visibleEnd);
-  const paddingLeft = visibleStart * barWidth;
-
-  const chartScrollRef = useCallback((el: HTMLDivElement | null) => {
-    if (!el) return;
-    setChartContainerWidth(el.clientWidth);
-    // 初始化滚到最右
-    if (chartScrollLeft < 0) {
-      el.scrollLeft = el.scrollWidth;
-      setChartScrollLeft(el.scrollLeft);
-    }
-    const onScroll = () => setChartScrollLeft(el.scrollLeft);
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, [chartDataFiltered.length]);
+  useEffect(() => { setHiddenChartDates(new Set()); }, [daily, chartDays]);
+  const chartData = useMemo(() =>
+    chartDataAll.slice(-chartDays).filter((d) => !hiddenChartDates.has(d.date)),
+    [chartDataAll, chartDays, hiddenChartDates]);
 
   // Day detail state
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -449,8 +444,8 @@ export default function PolyActivity() {
       <div className="pa-header">
         <h1>PolyActivity</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 13, color: 'var(--pa-text2)' }}>{groups.length} 分组</span>
-          <button className="pa-chart-tab" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => {
+          <span style={{ fontSize: 'var(--pa-fs-base)', color: 'var(--pa-text2)' }}>{groups.length} 分组</span>
+          <button className="pa-chart-tab" style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }} onClick={() => {
             setLoading(true);
             sharddbAPI.getGroups().then((g) => {
               setGroups(g);
@@ -601,7 +596,7 @@ export default function PolyActivity() {
                     return hasData ? (
                       <div className="pa-stat-card">
                         <div className="label">存取款</div>
-                        <div className="value" style={{ fontSize: 16 }}>
+                        <div className="value" style={{ fontSize: 'var(--pa-fs-lg)' }}>
                           净 {fmt(dep - wit)}
                         </div>
                         <div className="sub">
@@ -629,9 +624,8 @@ export default function PolyActivity() {
                 </div>
               )}
 
-              {/* 日历 (left) + PnL Chart (right) side by side */}
+              {/* 日历 (left) + PnL Chart (right) 并排等高 */}
               <div className="pa-row">
-                {/* 日历 */}
                 {daily.length > 0 && (
                   <div className="pa-row-left">
                     <ActivityCalendar
@@ -646,93 +640,89 @@ export default function PolyActivity() {
                   </div>
                 )}
 
-                {/* PnL Chart */}
                 <div className="pa-row-right">
-                  <div className="pa-card">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div className="pa-card" style={{ display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                       <div className="pa-chart-tabs">
-                        <button className={`pa-chart-tab${chartMode === 'pnl' ? ' active' : ''}`} onClick={() => setChartMode('pnl')}>
-                          盈亏
-                        </button>
-                        <button className={`pa-chart-tab${chartMode === 'volume' ? ' active' : ''}`} onClick={() => setChartMode('volume')}>
-                          交易额
-                        </button>
+                        <button className={`pa-chart-tab${chartMode === 'pnl' ? ' active' : ''}`} onClick={() => setChartMode('pnl')}>盈亏</button>
+                        <button className={`pa-chart-tab${chartMode === 'volume' ? ' active' : ''}`} onClick={() => setChartMode('volume')}>交易额</button>
                       </div>
-                      {hiddenChartDates.size > 0 && (
-                        <button className="pa-chart-tab" onClick={() => setHiddenChartDates(new Set())} style={{ fontSize: 11 }}>
-                          重置 ({hiddenChartDates.size})
-                        </button>
-                      )}
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        {hiddenChartDates.size > 0 && (
+                          <button className="pa-chart-tab" onClick={() => setHiddenChartDates(new Set())} style={{ fontSize: 'var(--pa-fs-sm)' }}>
+                            重置 ({hiddenChartDates.size})
+                          </button>
+                        )}
+                        <select className="pa-chart-select" value={chartDays} onChange={(e) => setChartDays(Number(e.target.value))}>
+                          <option value={7}>近 7 天</option>
+                          <option value={14}>近 14 天</option>
+                          <option value={30}>近 30 天</option>
+                          <option value={90}>近 90 天</option>
+                        </select>
+                      </div>
                     </div>
-                    <div className="pa-chart-scroll" ref={chartScrollRef}>
+                    <div style={{ flex: 1, minHeight: 0 }}>
                       {loadingData ? (
                         <div className="pa-loading"><div className="pa-spinner" />加载中...</div>
-                      ) : chartDataFiltered.length > 0 ? (
-                        <div style={{ width: Math.max(totalChartWidth, chartContainerWidth), height: '100%', position: 'relative' }}>
-                          <div style={{ position: 'absolute', left: paddingLeft, width: chartData.length * barWidth, height: '100%' }}>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <ComposedChart
-                              data={chartData}
-                              margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
-                              onClick={(e) => {
-                                if (e?.activeLabel) {
-                                  setHiddenChartDates((prev) => { const n = new Set(prev); n.add(e.activeLabel as string); return n; });
-                                }
+                      ) : chartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
+                            onClick={(e) => {
+                              if (e?.activeLabel) {
+                                setHiddenChartDates((prev) => { const n = new Set(prev); n.add(e.activeLabel as string); return n; });
+                              }
+                            }}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <XAxis dataKey="date" tick={{ fontSize: 'var(--pa-fs-xs)', fill: '#94a3b8' }} stroke="#e2e8f0" />
+                            <YAxis yAxisId="left" tick={{ fontSize: 'var(--pa-fs-xs)', fill: '#94a3b8' }} stroke="#e2e8f0" tickFormatter={(v) => fmtShort(v)} domain={['auto', 'auto']} />
+                            <ReferenceLine yAxisId="left" y={0} stroke="#94a3b8" strokeWidth={1.5} />
+                            <Tooltip
+                              contentStyle={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 'var(--pa-fs-sm)', boxShadow: '0 4px 16px rgba(15,23,42,0.1)' }}
+                              labelStyle={{ color: '#64748b' }}
+                              formatter={(value, name) => {
+                                const v = fmt(Number(value ?? 0));
+                                if (name === 'daily') return [v, '当日盈亏'];
+                                if (name === 'volume') return [v, '交易额'];
+                                return [v, String(name)];
                               }}
-                              style={{ cursor: 'pointer' }}
-                            >
-                              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                              <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} stroke="#e2e8f0" />
-                              <YAxis yAxisId="left" tick={{ fontSize: 10, fill: '#94a3b8' }} stroke="#e2e8f0" tickFormatter={(v) => fmtShort(v)} domain={['auto', 'auto']} />
-                              <ReferenceLine yAxisId="left" y={0} stroke="#94a3b8" strokeWidth={1.5} />
-                              <Tooltip
-                                contentStyle={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 12, boxShadow: '0 4px 16px rgba(15,23,42,0.1)' }}
-                                labelStyle={{ color: '#64748b' }}
-                                formatter={(value, name) => {
-                                  const v = fmt(Number(value ?? 0));
-                                  if (name === 'daily') return [v, '当日盈亏'];
-                                  if (name === 'volume') return [v, '交易额'];
-                                  return [v, String(name)];
-                                }}
-                              />
-                              {chartMode === 'volume' ? (
-                                <>
-                                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: '#94a3b8' }} stroke="#e2e8f0" tickFormatter={(v) => fmtShort(v)} domain={['auto', 'auto']} />
-                                  <Bar dataKey="volume" yAxisId="left" radius={[4, 4, 0, 0]}>
-                                    {chartData.map((d, i) => (
-                                      <Cell key={i} fill={d.isWeekend ? '#d97706' : 'rgba(79,70,229,0.6)'} />
-                                    ))}
-                                  </Bar>
-                                  <Line type="monotone" dataKey="daily" yAxisId="right" stroke="#d97706" strokeWidth={1.5} dot={false} />
-                                </>
-                              ) : (
-                                <Bar dataKey="daily" yAxisId="left" radius={[4, 4, 0, 0]}>
+                            />
+                            {chartMode === 'volume' ? (
+                              <>
+                                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 'var(--pa-fs-xs)', fill: '#94a3b8' }} stroke="#e2e8f0" tickFormatter={(v) => fmtShort(v)} domain={['auto', 'auto']} />
+                                <Bar dataKey="volume" yAxisId="left" radius={[4, 4, 0, 0]}>
                                   {chartData.map((d, i) => (
-                                    <Cell key={i} fill={d.daily >= 0
-                                      ? (d.isWeekend ? '#d97706' : 'rgba(5,150,105,0.7)')
-                                      : (d.isWeekend ? '#b91c1c' : 'rgba(220,38,38,0.7)')} />
+                                    <Cell key={i} fill={d.isWeekend ? '#d97706' : 'rgba(79,70,229,0.6)'} />
                                   ))}
                                 </Bar>
-                              )}
-                            </ComposedChart>
-                          </ResponsiveContainer>
-                          </div>
-                        </div>
+                                <Line type="monotone" dataKey="daily" yAxisId="right" stroke="#d97706" strokeWidth={1.5} dot={false} />
+                              </>
+                            ) : (
+                              <Bar dataKey="daily" yAxisId="left" radius={[4, 4, 0, 0]}>
+                                {chartData.map((d, i) => (
+                                  <Cell key={i} fill={d.daily >= 0
+                                    ? (d.isWeekend ? '#d97706' : 'rgba(5,150,105,0.7)')
+                                    : (d.isWeekend ? '#b91c1c' : 'rgba(220,38,38,0.7)')} />
+                                ))}
+                              </Bar>
+                            )}
+                          </ComposedChart>
+                        </ResponsiveContainer>
                       ) : (
                         <div className="pa-empty">暂无数据</div>
                       )}
                     </div>
                   </div>
-
                 </div>
               </div>
 
-              {/* 交易明细（日历和图表下方，全宽） */}
+              {/* 交易明细（日历和图表下方，全宽，填满剩余高度） */}
               {selectedDate && (
-                <div className="pa-card">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div className="pa-card pa-detail-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <h2 style={{ margin: 0 }}>{selectedDate} 交易明细</h2>
-                    <button className="pa-chart-tab" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => {
+                    <button className="pa-chart-tab" style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }} onClick={() => {
                       const text = '市场\t事件\t笔数\t金额\t盈亏\n' + dailyEvents.map((ev) =>
                         `${ev.condition_id.slice(0,10)}\t${ev.title}\t${ev.count}\t${ev.total_usdc.toFixed(2)}\t${ev.total_pnl.toFixed(2)}`
                       ).join('\n');
@@ -767,13 +757,13 @@ export default function PolyActivity() {
                           {dailyEvents.map((ev, i) => (
                             <React.Fragment key={i}>
                               <tr style={{ cursor: 'pointer' }} onClick={() => setExpandedEvent(expandedEvent === ev.title ? null : ev.title)}>
-                                <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                                <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 'var(--pa-fs-sm)' }}>
                                   {ev.condition_id ? (
                                     <span className="pa-market-link" onClick={(e) => { e.stopPropagation(); openMarket(ev.condition_id); }} title={ev.condition_id}>{ev.condition_id.slice(0, 10)}...</span>
                                   ) : '-'}
                                 </td>
-                                <td style={{ fontSize: 12, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ev.title}>
-                                  <span style={{ marginRight: 4, fontSize: 10, color: 'var(--pa-text2)' }}>{expandedEvent === ev.title ? '\u25BC' : '\u25B6'}</span>
+                                <td style={{ fontSize: 'var(--pa-fs-sm)', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ev.title}>
+                                  <span style={{ marginRight: 4, fontSize: 'var(--pa-fs-xs)', color: 'var(--pa-text2)' }}>{expandedEvent === ev.title ? '\u25BC' : '\u25B6'}</span>
                                   {ev.title}
                                 </td>
                                 <td style={{ textAlign: 'right' }}>{ev.count}</td>
@@ -787,9 +777,9 @@ export default function PolyActivity() {
                                   ) : (
                                     <div className="pa-event-detail">
                                       <div className="pa-event-wallet" style={{ borderBottom: '1px solid var(--pa-border)', paddingBottom: 4, marginBottom: 4 }}>
-                                        <span className="pa-ew-name" style={{ color: 'var(--pa-text3)', fontSize: 11 }}>钱包</span>
-                                        <span className="pa-ew-info" style={{ color: 'var(--pa-text3)', fontSize: 11 }}>操作</span>
-                                        <span className="pa-ew-pnl pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 11 }} onClick={() => setDetailPnlAsc((v) => !v)}>
+                                        <span className="pa-ew-name" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }}>钱包</span>
+                                        <span className="pa-ew-info" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }}>操作</span>
+                                        <span className="pa-ew-pnl pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => setDetailPnlAsc((v) => !v)}>
                                           盈亏 {detailPnlAsc ? '\u25B2' : '\u25BC'}
                                         </span>
                                       </div>
