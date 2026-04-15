@@ -854,6 +854,20 @@ export const sharddbAPI = {
     const response = await api.get<SharddbEquityCurveResponse>('/api/sharddb/equity_curve', { params: { wallet } });
     return response.data;
   },
+  getDailyEvents: async (params: { date: string; wallet?: string; group?: string; exclude_wallets?: string }): Promise<{
+    events: { title: string; condition_id: string; count: number; total_usdc: number; total_pnl: number }[];
+    date: string; total: number;
+  }> => {
+    const response = await api.get('/api/sharddb/daily_events', { params });
+    return response.data;
+  },
+  getEventDetail: async (date: string, conditionId: string): Promise<{
+    records: { wallet: string; label: string; type: string; side: string; size: number; usdc_size: number; price: number; pnl?: number; ts: number }[];
+    total: number;
+  }> => {
+    const response = await api.get('/api/sharddb/event_detail', { params: { date, condition_id: conditionId } });
+    return response.data;
+  },
   getMarketURL: async (conditionId: string): Promise<{ url: string; slug: string }> => {
     const response = await api.get<{ url: string; slug: string }>('/api/sharddb/market_url', { params: { condition_id: conditionId } });
     return response.data;

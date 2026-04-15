@@ -19,7 +19,6 @@ import {
 import {
   sharddbAPI,
   type SharddbGroupItem,
-  type SharddbRecordItem,
   type SharddbEquityCurveResponse,
 } from '../utils/api';
 import './PolyActivity.css';
@@ -198,7 +197,7 @@ export default function PolyActivity() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [walletLabels, setWalletLabels] = useState<Record<string, string>>({});
   const [walletPnls, setWalletPnls] = useState<Record<string, number>>({});
-  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [loadingData, setLoadingData] = useState(false);
   const [chartMode, setChartMode] = useState<'pnl' | 'volume'>('pnl');
   const [calMode, setCalMode] = useState<'pnl' | 'volume'>('pnl');
   const [equityCurve, setEquityCurve] = useState<SharddbEquityCurveResponse | null>(null);
@@ -238,16 +237,16 @@ export default function PolyActivity() {
   // Load detail when selection changes
   useEffect(() => {
     if (selectedWallet) {
-      setLoadingDetail(true);
+      setLoadingData(true);
       sharddbAPI.getEquity(selectedWallet).then((res) => {
         setDaily(res.daily || []);
         setSummary(res.summary);
-      }).catch(console.error).finally(() => setLoadingDetail(false));
+      }).catch(console.error).finally(() => setLoadingData(false));
       sharddbAPI.getEquityCurve(selectedWallet).then(setEquityCurve).catch(console.error);
     } else if (selectedGroup === '_total') {
       // Total: aggregate all non-excluded groups client-side
       setEquityCurve(null);
-      setLoadingDetail(true);
+      setLoadingData(true);
       const includedGroups = groups.filter((g) => g.group !== '_total' && !totalExcluded.has(g.group));
       Promise.all(includedGroups.map((g) => sharddbAPI.getGroupEquity(g.group)))
         .then((results) => {
@@ -282,14 +281,14 @@ export default function PolyActivity() {
           setSummary(sum);
         })
         .catch(console.error)
-        .finally(() => setLoadingDetail(false));
+        .finally(() => setLoadingData(false));
     } else if (selectedGroup) {
       setEquityCurve(null);
-      setLoadingDetail(true);
+      setLoadingData(true);
       sharddbAPI.getGroupEquity(selectedGroup).then((res) => {
         setDaily(res.daily || []);
         setSummary(res.summary);
-      }).catch(console.error).finally(() => setLoadingDetail(false));
+      }).catch(console.error).finally(() => setLoadingData(false));
     } else {
       setDaily([]);
       setSummary(null);
@@ -314,88 +313,60 @@ export default function PolyActivity() {
   const chartData = chartDataAll.filter((d) => !hiddenChartDates.has(d.date));
   const chartScrollRef = useCallback((el: HTMLDivElement | null) => { if (el) el.scrollLeft = el.scrollWidth; }, [chartData.length]);
 
-  // Day detail state (shared between calendar click and detail panel)
+  // Day detail state
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [detailRecords, setDetailRecords] = useState<SharddbRecordItem[]>([]);
-  const [loadingRecords, setLoadingRecords] = useState(false);
-  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set(['BUY']));
-  const [detailSortKey, setDetailSortKey] = useState<'ts' | 'type' | 'usdc_size' | 'pnl'>('pnl');
+  type EventItem = { title: string; condition_id: string; count: number; total_usdc: number; total_pnl: number };
+  const [dailyEvents, setDailyEvents] = useState<EventItem[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
   const [detailSortAsc, setDetailSortAsc] = useState(false);
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
+  const [expandedDetail, setExpandedDetail] = useState<{ wallet: string; label: string; type: string; side: string; size: number; usdc_size: number; price: number; pnl?: number; ts: number }[]>([]);
+  const [loadingEventDetail, setLoadingEventDetail] = useState(false);
+  const [detailPnlAsc, setDetailPnlAsc] = useState(false);
 
-  const toggleDetailSort = (key: typeof detailSortKey) => {
-    if (detailSortKey === key) setDetailSortAsc((v) => !v);
-    else { setDetailSortKey(key); setDetailSortAsc(false); }
-  };
-
-  // Fetch records when selectedDate changes
+  // Fetch daily events when selectedDate changes
   useEffect(() => {
-    if (!selectedDate) { setDetailRecords([]); return; }
+    if (!selectedDate) { setDailyEvents([]); return; }
     const w = selectedWallet;
     const g = selectedWallet ? null : selectedGroup;
-    if (!w && !g) { setDetailRecords([]); return; }
-    setLoadingRecords(true);
+    if (!w && !g) { setDailyEvents([]); return; }
+    setLoadingEvents(true);
+    setExpandedEvent(null);
 
+    let params: Record<string, string> = { date: selectedDate };
     if (g === '_total') {
-      // Total: query all wallets but exclude the ones in excluded groups
       const excludedWallets = groups
         .filter((grp) => grp.group !== '_total' && totalExcluded.has(grp.group))
         .flatMap((grp) => grp.wallets || []);
-      const params = { exclude_wallets: excludedWallets.join(','), from: selectedDate, to: selectedDate };
-      sharddbAPI.getRecords(params).then((res) => setDetailRecords(res.list || [])).catch(console.error).finally(() => setLoadingRecords(false));
+      params.exclude_wallets = excludedWallets.join(',');
+    } else if (w) {
+      params.wallet = w;
     } else {
-      const params = w ? { wallet: w, from: selectedDate, to: selectedDate } : { group: g!, from: selectedDate, to: selectedDate };
-      sharddbAPI.getRecords(params).then((res) => setDetailRecords(res.list || [])).catch(console.error).finally(() => setLoadingRecords(false));
+      params.group = g!;
     }
+    sharddbAPI.getDailyEvents(params as any).then((res) => {
+      const evts = res.events || [];
+      if (detailSortAsc) evts.sort((a, b) => a.total_pnl - b.total_pnl);
+      else evts.sort((a, b) => b.total_pnl - a.total_pnl);
+      setDailyEvents(evts);
+    }).catch(console.error).finally(() => setLoadingEvents(false));
   }, [selectedDate, selectedWallet, selectedGroup, selectedGroup === '_total' ? [...totalExcluded].join(',') : '']);
+
+  // Fetch event detail when expanded
+  useEffect(() => {
+    if (!expandedEvent || !selectedDate) { setExpandedDetail([]); return; }
+    const ev = dailyEvents.find((e) => e.title === expandedEvent);
+    if (!ev?.condition_id) return;
+    setLoadingEventDetail(true);
+    sharddbAPI.getEventDetail(selectedDate, ev.condition_id)
+      .then((res) => setExpandedDetail(res.records || []))
+      .catch(console.error)
+      .finally(() => setLoadingEventDetail(false));
+  }, [expandedEvent, selectedDate]);
 
   // Reset selectedDate when wallet/group changes
   useEffect(() => { setSelectedDate(null); }, [selectedWallet, selectedGroup]);
 
-  const detailAllTypes = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of detailRecords) s.add(r.type === 'TRADE' ? r.side : r.type);
-    return [...s].sort();
-  }, [detailRecords]);
-
-  const detailFiltered = useMemo(() =>
-    detailRecords.filter((r) => !hiddenTypes.has(r.type === 'TRADE' ? r.side : r.type)),
-  [detailRecords, hiddenTypes]);
-
-  type WalletDetail = { wallet: string; pnl: number; usdc: number; records: SharddbRecordItem[] };
-  const eventSummary = useMemo(() => {
-    const map = new Map<string, { title: string; conditionId: string; totalPnl: number; totalUsdc: number; count: number; wallets: Map<string, WalletDetail> }>();
-    for (const r of detailFiltered) {
-      if (r.pnl == null) continue;
-      const key = r.title || (r.type === 'MAKER_REBATE' ? '做市奖励' : r.token_id) || 'unknown';
-      let ev = map.get(key);
-      if (!ev) { ev = { title: key, conditionId: r.condition_id || '', totalPnl: 0, totalUsdc: 0, count: 0, wallets: new Map() }; map.set(key, ev); }
-      ev.totalPnl += r.pnl; ev.totalUsdc += r.usdc_size; ev.count++;
-      const wd = ev.wallets.get(r.wallet) ?? { wallet: r.wallet, pnl: 0, usdc: 0, records: [] };
-      wd.pnl += r.pnl; wd.usdc += r.usdc_size; wd.records.push(r); ev.wallets.set(r.wallet, wd);
-    }
-    const arr = [...map.values()];
-    arr.sort((a, b) => detailSortAsc ? a.totalPnl - b.totalPnl : b.totalPnl - a.totalPnl);
-    return arr;
-  }, [detailFiltered, detailSortAsc]);
-
-  const sortedDetailRecords = useMemo(() => {
-    const arr = [...detailFiltered];
-    arr.sort((a, b) => {
-      let va: number, vb: number;
-      switch (detailSortKey) {
-        case 'ts': va = a.ts; vb = b.ts; break;
-        case 'type': { const ta = a.type === 'TRADE' ? a.side : a.type; const tb = b.type === 'TRADE' ? b.side : b.type; return detailSortAsc ? ta.localeCompare(tb) : tb.localeCompare(ta); }
-        case 'usdc_size': va = a.usdc_size; vb = b.usdc_size; break;
-        case 'pnl': va = a.pnl ?? -Infinity; vb = b.pnl ?? -Infinity; break;
-        default: va = a.ts; vb = b.ts;
-      }
-      return detailSortAsc ? va - vb : vb - va;
-    });
-    return arr;
-  }, [detailFiltered, detailSortKey, detailSortAsc]);
-
-  const isGroupMode = !selectedWallet && !!selectedGroup;
 
   const activeGroupObj = groups.find((g) => g.group === selectedGroup);
 
@@ -667,7 +638,7 @@ export default function PolyActivity() {
                       )}
                     </div>
                     <div className="pa-chart-scroll" ref={chartScrollRef}>
-                      {loadingDetail ? (
+                      {loadingData ? (
                         <div className="pa-loading"><div className="pa-spinner" />加载中...</div>
                       ) : chartData.length > 0 ? (
                         <div style={{ width: Math.max(chartData.length * 28, 300), minWidth: '100%', height: '100%' }}>
@@ -730,136 +701,90 @@ export default function PolyActivity() {
               {/* 交易明细（日历和图表下方，全宽） */}
               {selectedDate && (
                 <div className="pa-card">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <h2 style={{ margin: 0 }}>{selectedDate} 交易明细</h2>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <button className="pa-chart-tab" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => {
-                        let text = '';
-                        if (isGroupMode) {
-                          text = '事件\t笔数\t金额\t盈亏\n' + eventSummary.map((ev) =>
-                            `${ev.title}\t${ev.count}\t${ev.totalUsdc.toFixed(2)}\t${ev.totalPnl.toFixed(2)}`
-                          ).join('\n');
-                        } else {
-                          text = '时间\t类型\t事件\t金额\t盈亏\n' + sortedDetailRecords.map((r) => {
-                            const action = r.type === 'TRADE' ? r.side : r.type;
-                            const time = new Date(r.ts * 1000).toLocaleString('zh-CN', { hour12: false });
-                            return `${time}\t${action}\t${r.title || '-'}\t${r.usdc_size.toFixed(2)}\t${r.pnl != null ? r.pnl.toFixed(2) : '-'}`;
-                          }).join('\n');
-                        }
-                        navigator.clipboard.writeText(text).then(() => {
-                          const btn = document.activeElement as HTMLButtonElement;
-                          const orig = btn.textContent;
-                          btn.textContent = '已复制';
-                          setTimeout(() => { btn.textContent = orig; }, 1500);
-                        });
-                      }}>复制</button>
-                      <div className="pa-type-filters">
-                        {detailAllTypes.map((t) => {
-                          const hidden = hiddenTypes.has(t);
-                          const cls = t === 'BUY' ? 'type-buy' : t === 'SELL' ? 'type-sell' : t === 'REDEEM' ? 'type-redeem' : 'type-other';
-                          return (
-                            <button key={t} className={`pa-type-btn${hidden ? ' hidden' : ''} ${cls}`} onClick={() => setHiddenTypes((prev) => { const n = new Set(prev); if (n.has(t)) n.delete(t); else n.add(t); return n; })}>
-                              {t}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    <button className="pa-chart-tab" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => {
+                      const text = '市场\t事件\t笔数\t金额\t盈亏\n' + dailyEvents.map((ev) =>
+                        `${ev.condition_id.slice(0,10)}\t${ev.title}\t${ev.count}\t${ev.total_usdc.toFixed(2)}\t${ev.total_pnl.toFixed(2)}`
+                      ).join('\n');
+                      navigator.clipboard.writeText(text).then(() => {
+                        const btn = document.activeElement as HTMLButtonElement;
+                        const orig = btn.textContent;
+                        btn.textContent = '已复制';
+                        setTimeout(() => { btn.textContent = orig; }, 1500);
+                      });
+                    }}>复制</button>
                   </div>
-                  {loadingRecords ? (
+                  {loadingEvents ? (
                     <div className="pa-loading"><div className="pa-spinner" />加载中...</div>
-                  ) : detailRecords.length > 0 ? (
-                    <>
-                      {isGroupMode ? (
-                        <div className="pa-table-wrap">
-                          <table className="pa-table">
-                            <thead>
-                              <tr>
-                                <th>市场</th>
-                                <th>事件</th>
-                                <th style={{ textAlign: 'right' }}>笔数</th>
-                                <th style={{ textAlign: 'right' }}>金额</th>
-                                <th className="pa-th-sort" style={{ textAlign: 'right' }} onClick={() => setDetailSortAsc((v) => !v)}>
-                                  盈亏 {detailSortAsc ? '\u25B2' : '\u25BC'}
-                                </th>
+                  ) : dailyEvents.length > 0 ? (
+                    <div className="pa-table-wrap">
+                      <table className="pa-table">
+                        <thead>
+                          <tr>
+                            <th>市场</th>
+                            <th>事件</th>
+                            <th style={{ textAlign: 'right' }}>笔数</th>
+                            <th style={{ textAlign: 'right' }}>金额</th>
+                            <th className="pa-th-sort" style={{ textAlign: 'right' }} onClick={() => {
+                              setDetailSortAsc((v) => !v);
+                              setDailyEvents((prev) => [...prev].sort((a, b) => !detailSortAsc ? a.total_pnl - b.total_pnl : b.total_pnl - a.total_pnl));
+                            }}>
+                              盈亏 {detailSortAsc ? '\u25B2' : '\u25BC'}
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dailyEvents.map((ev, i) => (
+                            <React.Fragment key={i}>
+                              <tr style={{ cursor: 'pointer' }} onClick={() => setExpandedEvent(expandedEvent === ev.title ? null : ev.title)}>
+                                <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                                  {ev.condition_id ? (
+                                    <span className="pa-market-link" onClick={(e) => { e.stopPropagation(); openMarket(ev.condition_id); }} title={ev.condition_id}>{ev.condition_id.slice(0, 10)}...</span>
+                                  ) : '-'}
+                                </td>
+                                <td style={{ fontSize: 12, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ev.title}>
+                                  <span style={{ marginRight: 4, fontSize: 10, color: 'var(--pa-text2)' }}>{expandedEvent === ev.title ? '\u25BC' : '\u25B6'}</span>
+                                  {ev.title}
+                                </td>
+                                <td style={{ textAlign: 'right' }}>{ev.count}</td>
+                                <td style={{ textAlign: 'right' }}>{fmt(ev.total_usdc)}</td>
+                                <td style={{ textAlign: 'right', color: ev.total_pnl >= 0 ? 'var(--pa-green)' : 'var(--pa-red)', fontWeight: 600 }}>{fmt(ev.total_pnl)}</td>
                               </tr>
-                            </thead>
-                            <tbody>
-                              {eventSummary.map((ev, i) => (
-                                <React.Fragment key={i}>
-                                  <tr style={{ cursor: 'pointer' }} onClick={() => setExpandedEvent(expandedEvent === ev.title ? null : ev.title)}>
-                                    <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
-                                      {ev.conditionId ? (
-                                        <span className="pa-market-link" onClick={(e) => { e.stopPropagation(); openMarket(ev.conditionId); }} title={ev.conditionId}>{ev.conditionId.slice(0, 10)}...</span>
-                                      ) : '-'}
-                                    </td>
-                                    <td style={{ fontSize: 12, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ev.title}>
-                                      <span style={{ marginRight: 4, fontSize: 10, color: 'var(--pa-text2)' }}>{expandedEvent === ev.title ? '\u25BC' : '\u25B6'}</span>
-                                      {ev.title}
-                                    </td>
-                                    <td style={{ textAlign: 'right' }}>{ev.count}</td>
-                                    <td style={{ textAlign: 'right' }}>{fmt(ev.totalUsdc)}</td>
-                                    <td style={{ textAlign: 'right', color: ev.totalPnl >= 0 ? 'var(--pa-green)' : 'var(--pa-red)', fontWeight: 600 }}>{fmt(ev.totalPnl)}</td>
-                                  </tr>
-                                  {expandedEvent === ev.title && (
-                                    <tr><td colSpan={5} style={{ padding: 0 }}>
-                                      <div className="pa-event-detail">
-                                        {[...ev.wallets.values()].sort((a, b) => b.pnl - a.pnl).map((wd) => (
-                                          <div key={wd.wallet} className="pa-event-wallet">
-                                            <span className="pa-ew-name">{walletLabels[wd.wallet] || addrShort(wd.wallet)}</span>
-                                            <span className="pa-ew-info">
-                                              {wd.records.map((r, ri) => { const action = r.type === 'TRADE' ? r.side : r.type; return <span key={ri} className="pa-ew-rec">{action} {fmt(r.usdc_size)} @{r.price > 0 ? r.price.toFixed(3) : '-'}</span>; })}
-                                            </span>
-                                            <span className={`pa-ew-pnl${wd.pnl >= 0 ? ' pos' : ' neg'}`}>{fmt(wd.pnl)}</span>
-                                          </div>
-                                        ))}
+                              {expandedEvent === ev.title && (
+                                <tr><td colSpan={5} style={{ padding: 0 }}>
+                                  {loadingEventDetail ? (
+                                    <div className="pa-loading" style={{ height: 60 }}><div className="pa-spinner" /></div>
+                                  ) : (
+                                    <div className="pa-event-detail">
+                                      <div className="pa-event-wallet" style={{ borderBottom: '1px solid var(--pa-border)', paddingBottom: 4, marginBottom: 4 }}>
+                                        <span className="pa-ew-name" style={{ color: 'var(--pa-text3)', fontSize: 11 }}>钱包</span>
+                                        <span className="pa-ew-info" style={{ color: 'var(--pa-text3)', fontSize: 11 }}>操作</span>
+                                        <span className="pa-ew-pnl pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 11 }} onClick={() => setDetailPnlAsc((v) => !v)}>
+                                          盈亏 {detailPnlAsc ? '\u25B2' : '\u25BC'}
+                                        </span>
                                       </div>
-                                    </td></tr>
+                                      {[...expandedDetail].sort((a, b) => detailPnlAsc ? (a.pnl ?? 0) - (b.pnl ?? 0) : (b.pnl ?? 0) - (a.pnl ?? 0)).map((r, ri) => {
+                                        const action = r.type === 'TRADE' ? r.side : r.type;
+                                        return (
+                                          <div key={ri} className="pa-event-wallet">
+                                            <span className="pa-ew-name">{r.label || addrShort(r.wallet)}</span>
+                                            <span className="pa-ew-info">
+                                              <span className="pa-ew-rec">{action} {fmt(r.usdc_size)} @{r.price > 0 ? r.price.toFixed(3) : '-'}</span>
+                                            </span>
+                                            <span className={`pa-ew-pnl${(r.pnl ?? 0) >= 0 ? ' pos' : ' neg'}`}>{r.pnl != null ? fmt(r.pnl) : '-'}</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
                                   )}
-                                </React.Fragment>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <div className="pa-table-wrap">
-                          <table className="pa-table">
-                            <thead>
-                              <tr>
-                                <th className="pa-th-sort" onClick={() => toggleDetailSort('ts')}>时间 {detailSortKey === 'ts' ? (detailSortAsc ? '\u25B2' : '\u25BC') : ''}</th>
-                                <th className="pa-th-sort" onClick={() => toggleDetailSort('type')}>类型 {detailSortKey === 'type' ? (detailSortAsc ? '\u25B2' : '\u25BC') : ''}</th>
-                                <th>市场</th>
-                                <th>事件</th>
-                                <th className="pa-th-sort" style={{ textAlign: 'right' }} onClick={() => toggleDetailSort('usdc_size')}>金额 {detailSortKey === 'usdc_size' ? (detailSortAsc ? '\u25B2' : '\u25BC') : ''}</th>
-                                <th className="pa-th-sort" style={{ textAlign: 'right' }} onClick={() => toggleDetailSort('pnl')}>盈亏 {detailSortKey === 'pnl' ? (detailSortAsc ? '\u25B2' : '\u25BC') : ''}</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {sortedDetailRecords.map((r, i) => {
-                                const action = r.type === 'TRADE' ? r.side : r.type;
-                                const typeClass = action === 'BUY' ? 'type-buy' : action === 'SELL' ? 'type-sell' : r.type === 'REDEEM' ? 'type-redeem' : 'type-other';
-                                return (
-                                  <tr key={`${r.ts}-${i}`}>
-                                    <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{new Date(r.ts * 1000).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
-                                    <td className={typeClass} style={{ fontWeight: 500 }}>{action}</td>
-                                    <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
-                                      {r.condition_id ? (
-                                        <span className="pa-market-link" onClick={() => openMarket(r.condition_id)} title={r.condition_id}>{r.condition_id.slice(0, 10)}...</span>
-                                      ) : '-'}
-                                    </td>
-                                    <td style={{ fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.title || ''}>
-                                      {r.title || (r.type === 'MAKER_REBATE' ? '做市奖励' : '-')}
-                                    </td>
-                                    <td style={{ textAlign: 'right' }}>{fmt(r.usdc_size)}</td>
-                                    <td style={{ textAlign: 'right', color: r.pnl != null ? (r.pnl >= 0 ? 'var(--pa-green)' : 'var(--pa-red)') : 'var(--pa-text2)' }}>{r.pnl != null ? fmt(r.pnl) : '-'}</td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </>
+                                </td></tr>
+                              )}
+                            </React.Fragment>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   ) : (
                     <div className="pa-empty" style={{ height: 80 }}>无记录</div>
                   )}
