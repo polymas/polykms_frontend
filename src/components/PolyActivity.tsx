@@ -395,14 +395,14 @@ export default function PolyActivity() {
 
   // Open positions state
   const [showOpenPositions, setShowOpenPositions] = useState(false);
-  type OpenPosItem = { condition_id: string; token_id: string; title: string; shares: number; cost: number; revenue: number; exposure: number; avg_price: number; cur_price: number; unreal_pnl: number; wallet_count: number };
+  type OpenPosItem = { condition_id: string; token_id: string; title: string; shares: number; cost: number; revenue: number; exposure: number; avg_price: number; cur_price: number; unreal_pnl: number; first_buy_ts: number; wallet_count: number };
   const [openPositions, setOpenPositions] = useState<OpenPosItem[]>([]);
   const [loadingOpenPos, setLoadingOpenPos] = useState(false);
   const [expandedPos, setExpandedPos] = useState<string | null>(null);
   type PosDetailItem = { wallet: string; label: string; shares: number; cost: number; revenue: number; exposure: number; avg_price: number };
   const [posDetail, setPosDetail] = useState<PosDetailItem[]>([]);
   const [loadingPosDetail, setLoadingPosDetail] = useState(false);
-  const openPosSort = useSort(openPositions, 'shares');
+  const openPosSort = useSort(openPositions, 'first_buy_ts');
   const posDetailSort = useSort(posDetail, 'exposure');
   const [openPosFetchedAt, setOpenPosFetchedAt] = useState(0); // timestamp ms
   const [openPosCacheTTL, setOpenPosCacheTTL] = useState(0); // seconds remaining
@@ -875,8 +875,8 @@ export default function PolyActivity() {
                       )}
                       <button className="pa-chart-tab" style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }} onClick={(e) => {
                         const text = showOpenPositions
-                          ? '市场\t事件\t持仓量\t成本\t敞口\t均价\t现价\t浮动盈亏\n' + openPositions.map((p) =>
-                              `${p.condition_id.slice(0,10)}\t${p.title}\t${p.shares.toFixed(1)}\t${p.cost.toFixed(2)}\t${p.exposure.toFixed(2)}\t${p.avg_price > 0 ? p.avg_price.toFixed(3) : '-'}\t${p.cur_price > 0 ? p.cur_price.toFixed(3) : '-'}\t${p.cur_price > 0 ? p.unreal_pnl.toFixed(2) : '-'}`
+                          ? '市场\t事件\t开仓时间\t持仓量\t成本\t敞口\t均价\t现价\t浮动盈亏\n' + openPositions.map((p) =>
+                              `${p.condition_id.slice(0,10)}\t${p.title}\t${p.first_buy_ts > 0 ? new Date(p.first_buy_ts * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}\t${p.shares.toFixed(1)}\t${p.cost.toFixed(2)}\t${p.exposure.toFixed(2)}\t${p.avg_price > 0 ? p.avg_price.toFixed(3) : '-'}\t${p.cur_price > 0 ? p.cur_price.toFixed(3) : '-'}\t${p.cur_price > 0 ? p.unreal_pnl.toFixed(2) : '-'}`
                             ).join('\n')
                           : '市场\t事件\t笔数\t金额\t盈亏\n' + dailyEvents.map((ev) =>
                               `${ev.condition_id.slice(0,10)}\t${ev.title}\t${ev.count}\t${ev.total_usdc.toFixed(2)}\t${ev.total_pnl.toFixed(2)}`
@@ -901,6 +901,7 @@ export default function PolyActivity() {
                             <tr>
                               <th>市场</th>
                               <SortTh label="事件" field="title" {...openPosSort} onSort={openPosSort.toggle} />
+                              <SortTh label="开仓时间" field="first_buy_ts" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
                               <SortTh label="持仓量" field="shares" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
                               <SortTh label="成本" field="cost" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
                               <SortTh label="敞口" field="exposure" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
@@ -911,6 +912,7 @@ export default function PolyActivity() {
                             <TableSummaryRow columns={[
                               {},
                               { content: `${openPositions.length} 持仓` },
+                              {},
                               {},
                               { content: fmt(openPositions.reduce((s, p) => s + p.cost, 0)), style: { textAlign: 'right' } },
                               { content: fmt(openPositions.reduce((s, p) => s + p.exposure, 0)), style: { textAlign: 'right' } },
@@ -930,6 +932,9 @@ export default function PolyActivity() {
                                   <span style={{ marginRight: 4, fontSize: 'var(--pa-fs-xs)', color: 'var(--pa-text2)' }}>{expandedPos === p.condition_id ? '\u25BC' : '\u25B6'}</span>
                                   {p.title || '-'}
                                 </td>
+                                <td style={{ textAlign: 'right', fontSize: 'var(--pa-fs-xs)', color: 'var(--pa-text2)' }}>
+                                  {p.first_buy_ts > 0 ? new Date(p.first_buy_ts * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}
+                                </td>
                                 <td style={{ textAlign: 'right' }}>{p.shares.toFixed(1)}</td>
                                 <td style={{ textAlign: 'right' }}>{fmt(p.cost)}</td>
                                 <td style={{ textAlign: 'right' }}>{fmt(p.exposure)}</td>
@@ -940,7 +945,7 @@ export default function PolyActivity() {
                                 </td>
                               </tr>
                               {expandedPos === p.condition_id && (
-                                <tr><td colSpan={8} style={{ padding: 0 }}>
+                                <tr><td colSpan={9} style={{ padding: 0 }}>
                                   {loadingPosDetail ? (
                                     <div className="pa-loading" style={{ height: 60 }}><div className="pa-spinner" /></div>
                                   ) : (

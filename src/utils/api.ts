@@ -880,7 +880,7 @@ export const sharddbAPI = {
     return response.data;
   },
   getOpenPositions: async (params: { wallet?: string; group?: string; exclude_wallets?: string }): Promise<{
-    positions: { condition_id: string; token_id: string; title: string; shares: number; cost: number; revenue: number; exposure: number; avg_price: number; cur_price: number; unreal_pnl: number; wallet_count: number }[];
+    positions: { condition_id: string; token_id: string; title: string; shares: number; cost: number; revenue: number; exposure: number; avg_price: number; cur_price: number; unreal_pnl: number; first_buy_ts: number; wallet_count: number }[];
     total: number;
   }> => {
     const response = await api.get('/api/sharddb/open_positions', { params });
