@@ -466,8 +466,10 @@ export default function PolyActivity() {
     if (!ev) return;
     const isMakerRebate = ev.title === '做市奖励';
     if (!isMakerRebate && !ev.condition_id) return;
+    const p = buildWalletParams();
+    if (!p) return;
     setLoadingEventDetail(true);
-    sharddbAPI.getEventDetail(selectedDate, isMakerRebate ? undefined : ev.condition_id, isMakerRebate ? 'MAKER_REBATE' : undefined)
+    sharddbAPI.getEventDetail(selectedDate, isMakerRebate ? undefined : ev.condition_id, isMakerRebate ? 'MAKER_REBATE' : undefined, p)
       .then((res) => setExpandedDetail(res.records || []))
       .catch(console.error)
       .finally(() => setLoadingEventDetail(false));

@@ -861,11 +861,11 @@ export const sharddbAPI = {
     const response = await api.get('/api/sharddb/daily_events', { params });
     return response.data;
   },
-  getEventDetail: async (date: string, conditionId?: string, type?: string): Promise<{
+  getEventDetail: async (date: string, conditionId?: string, type?: string, extra?: Record<string, string>): Promise<{
     records: { wallet: string; label: string; type: string; side: string; size: number; usdc_size: number; price: number; pnl?: number; ts: number }[];
     total: number;
   }> => {
-    const params: Record<string, string> = { date };
+    const params: Record<string, string> = { date, ...extra };
     if (conditionId) params.condition_id = conditionId;
     if (type) params.type = type;
     const response = await api.get('/api/sharddb/event_detail', { params });
