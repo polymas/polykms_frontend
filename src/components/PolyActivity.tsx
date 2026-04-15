@@ -50,6 +50,16 @@ const openMarket = (conditionId: string) => {
   }).catch(() => {});
 };
 
+const copyAddr = (addr: string) => {
+  navigator.clipboard.writeText(addr).then(() => {
+    const toast = document.createElement('div');
+    toast.textContent = '已复制';
+    toast.className = 'pa-toast';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 1500);
+  });
+};
+
 interface ChartPoint { date: string; daily: number; cumulative: number; volume: number; isWeekend: boolean }
 
 type DailyItem = { date: string; day_pnl: number; cum_pnl: number; volume: number };
@@ -58,6 +68,48 @@ type SummaryData = {
   wins: number; losses: number; open_count: number; position_count: number;
 };
 
+/* ── 通用排序 hook ── */
+function useSort<T>(data: T[], defaultKey?: keyof T & string) {
+  const [sortKey, setSortKey] = useState<string | null>(defaultKey ?? null);
+  const [asc, setAsc] = useState(false);
+  const toggle = (key: string) => {
+    if (sortKey === key) setAsc((v) => !v);
+    else { setSortKey(key); setAsc(false); }
+  };
+  const sorted = useMemo(() => {
+    if (!sortKey) return data;
+    return [...data].sort((a, b) => {
+      const va = (a as any)[sortKey] ?? 0;
+      const vb = (b as any)[sortKey] ?? 0;
+      return asc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
+    });
+  }, [data, sortKey, asc]);
+  return { sorted, sortKey, asc, toggle };
+}
+
+/* ── 通用可排序表头 ── */
+function SortTh({ label, field, sortKey, asc, onSort, style }: {
+  label: string; field: string; sortKey: string | null; asc: boolean;
+  onSort: (field: string) => void; style?: React.CSSProperties;
+}) {
+  const active = sortKey === field;
+  return (
+    <th className="pa-th-sort" style={style} onClick={() => onSort(field)}>
+      {label} {active ? (asc ? '\u25B2' : '\u25BC') : ''}
+    </th>
+  );
+}
+
+/* ── 通用合计行（显示在表头下方） ── */
+function TableSummaryRow({ columns }: { columns: { content?: React.ReactNode; style?: React.CSSProperties }[] }) {
+  return (
+    <tr className="pa-summary-row">
+      {columns.map((col, i) => (
+        <td key={i} style={col.style}>{col.content ?? ''}</td>
+      ))}
+    </tr>
+  );
+}
 
 /* ── PnL / Volume 月历 ── */
 function ActivityCalendar({ daily, wallet, group, calMode, onModeChange, selectedDate, onSelectDate }: {
@@ -216,41 +268,25 @@ export default function PolyActivity() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [walletLabels, setWalletLabels] = useState<Record<string, string>>({});
   const [walletPnls, setWalletPnls] = useState<Record<string, number>>({});
+  const [syncStatus, setSyncStatus] = useState<{ wallet_count: number; oldest_sync_at: string; newest_sync_at: string } | null>(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
   const [loadingData, setLoadingData] = useState(false);
   const [chartMode, setChartMode] = useState<'pnl' | 'volume'>('volume');
   const [calMode, setCalMode] = useState<'pnl' | 'volume'>('pnl');
   const [equityCurve, setEquityCurve] = useState<SharddbEquityCurveResponse | null>(null);
   const [walletSortAsc, setWalletSortAsc] = useState(false); // default: descending
   const [totalExcluded, setTotalExcluded] = useState<Set<string>>(new Set(['chongwebdev', '_ungrouped', 'polysporttest']));
-  const [excludeInited, setExcludeInited] = useState(false);
 
   // Load groups + wallet metadata
+  useEffect(() => { refreshData(); }, []);
+
+  // Sync status polling (every 60s) + clock (every 1s)
   useEffect(() => {
-    setLoading(true);
-    sharddbAPI.getGroups().then((g) => {
-      setGroups(g);
-      // 首次加载：自动排除所有以 _ 开头的分组
-      if (!excludeInited) {
-        setExcludeInited(true);
-        setTotalExcluded((prev) => {
-          const next = new Set(prev);
-          for (const grp of g) {
-            if (grp.group.startsWith('_')) next.add(grp.group);
-          }
-          return next;
-        });
-      }
-      sharddbAPI.getWallets().then((ws) => {
-        const labels: Record<string, string> = {};
-        const pnls: Record<string, number> = {};
-        for (const w of ws) {
-          if (w.label) labels[w.wallet] = w.label;
-          pnls[w.wallet] = w.pnl ?? 0;
-        }
-        setWalletLabels(labels);
-        setWalletPnls(pnls);
-      });
-    }).catch(console.error).finally(() => setLoading(false));
+    const fetchSync = () => sharddbAPI.getSyncStatus().then(setSyncStatus).catch(() => {});
+    fetchSync();
+    const syncId = setInterval(fetchSync, 60000);
+    const clockId = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => { clearInterval(syncId); clearInterval(clockId); };
   }, []);
 
   // Load detail when selection changes
@@ -339,37 +375,75 @@ export default function PolyActivity() {
   type EventItem = { title: string; condition_id: string; count: number; total_usdc: number; total_pnl: number };
   const [dailyEvents, setDailyEvents] = useState<EventItem[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
-  const [detailSortAsc, setDetailSortAsc] = useState(false);
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
   const [expandedDetail, setExpandedDetail] = useState<{ wallet: string; label: string; type: string; side: string; size: number; usdc_size: number; price: number; pnl?: number; ts: number }[]>([]);
   const [loadingEventDetail, setLoadingEventDetail] = useState(false);
-  const [detailPnlAsc, setDetailPnlAsc] = useState(false);
+  const eventSort = useSort(dailyEvents, 'total_usdc');
+  const detailSort = useSort(expandedDetail, 'pnl');
+
+  // Open positions state
+  const [showOpenPositions, setShowOpenPositions] = useState(false);
+  type OpenPosItem = { condition_id: string; token_id: string; title: string; shares: number; cost: number; revenue: number; exposure: number; avg_price: number; cur_price: number; unreal_pnl: number; wallet_count: number };
+  const [openPositions, setOpenPositions] = useState<OpenPosItem[]>([]);
+  const [loadingOpenPos, setLoadingOpenPos] = useState(false);
+  const [expandedPos, setExpandedPos] = useState<string | null>(null);
+  type PosDetailItem = { wallet: string; label: string; shares: number; cost: number; revenue: number; exposure: number; avg_price: number };
+  const [posDetail, setPosDetail] = useState<PosDetailItem[]>([]);
+  const [loadingPosDetail, setLoadingPosDetail] = useState(false);
+  const openPosSort = useSort(openPositions, 'shares');
+  const posDetailSort = useSort(posDetail, 'exposure');
+  const [openPosFetchedAt, setOpenPosFetchedAt] = useState(0); // timestamp ms
+  const [openPosCacheTTL, setOpenPosCacheTTL] = useState(0); // seconds remaining
+
+  // Cache countdown timer
+  useEffect(() => {
+    if (openPosFetchedAt === 0) return;
+    const tick = () => {
+      const remaining = Math.max(0, 60 - Math.floor((Date.now() - openPosFetchedAt) / 1000));
+      setOpenPosCacheTTL(remaining);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [openPosFetchedAt]);
+
+  // Fetch open positions when toggled on (with 60s cache)
+  useEffect(() => {
+    if (!showOpenPositions) return;
+    if (openPosFetchedAt > 0 && Date.now() - openPosFetchedAt < 60000 && openPositions.length > 0) return;
+    const p = buildWalletParams();
+    if (!p) return;
+    setLoadingOpenPos(true);
+    sharddbAPI.getOpenPositions(p).then((res) => {
+      setOpenPositions(res.positions || []);
+      setOpenPosFetchedAt(Date.now());
+    }).catch(console.error).finally(() => setLoadingOpenPos(false));
+  }, [showOpenPositions, selectedWallet, selectedGroup, selectedGroup === '_total' ? [...totalExcluded].join(',') : '']);
+
+  // Invalidate cache when wallet/group changes
+  useEffect(() => { setOpenPosFetchedAt(0); setOpenPositions([]); }, [selectedWallet, selectedGroup]);
+
+  // Fetch position detail when expanded
+  useEffect(() => {
+    if (!expandedPos) { setPosDetail([]); return; }
+    const p = buildWalletParams();
+    if (!p) return;
+    setLoadingPosDetail(true);
+    sharddbAPI.getOpenPositionDetail(expandedPos, p)
+      .then((res) => setPosDetail(res.records || []))
+      .catch(console.error)
+      .finally(() => setLoadingPosDetail(false));
+  }, [expandedPos]);
 
   // Fetch daily events when selectedDate changes
   useEffect(() => {
     if (!selectedDate) { setDailyEvents([]); return; }
-    const w = selectedWallet;
-    const g = selectedWallet ? null : selectedGroup;
-    if (!w && !g) { setDailyEvents([]); return; }
+    const p = buildWalletParams({ date: selectedDate });
+    if (!p) { setDailyEvents([]); return; }
     setLoadingEvents(true);
     setExpandedEvent(null);
-
-    let params: Record<string, string> = { date: selectedDate };
-    if (g === '_total') {
-      const excludedWallets = groups
-        .filter((grp) => grp.group !== '_total' && totalExcluded.has(grp.group))
-        .flatMap((grp) => grp.wallets || []);
-      params.exclude_wallets = excludedWallets.join(',');
-    } else if (w) {
-      params.wallet = w;
-    } else {
-      params.group = g!;
-    }
-    sharddbAPI.getDailyEvents(params as any).then((res) => {
-      const evts = res.events || [];
-      if (detailSortAsc) evts.sort((a, b) => a.total_pnl - b.total_pnl);
-      else evts.sort((a, b) => b.total_pnl - a.total_pnl);
-      setDailyEvents(evts);
+    sharddbAPI.getDailyEvents(p as any).then((res) => {
+      setDailyEvents(res.events || []);
     }).catch(console.error).finally(() => setLoadingEvents(false));
   }, [selectedDate, selectedWallet, selectedGroup, selectedGroup === '_total' ? [...totalExcluded].join(',') : '']);
 
@@ -388,7 +462,13 @@ export default function PolyActivity() {
   }, [expandedEvent, selectedDate]);
 
   // Reset selectedDate when wallet/group changes
+  // Reset and auto-select latest date when wallet/group changes
   useEffect(() => { setSelectedDate(null); }, [selectedWallet, selectedGroup]);
+  useEffect(() => {
+    if (daily.length > 0 && !selectedDate) {
+      setSelectedDate(daily[daily.length - 1].date);
+    }
+  }, [daily]);
 
   const activeGroupObj = groups.find((g) => g.group === selectedGroup);
 
@@ -439,24 +519,68 @@ export default function PolyActivity() {
 
   const totalPnl = summary?.pnl ?? 0;
 
+  // 通用：构建钱包过滤参数
+  const buildWalletParams = (extra?: Record<string, string>) => {
+    const w = selectedWallet;
+    const g = selectedWallet ? null : selectedGroup;
+    if (!w && !g) return null;
+    const params: Record<string, string> = { ...extra };
+    if (g === '_total') {
+      const excluded = groups
+        .filter((grp) => grp.group !== '_total' && totalExcluded.has(grp.group))
+        .flatMap((grp) => grp.wallets || []);
+      params.exclude_wallets = excluded.join(',');
+    } else if (w) {
+      params.wallet = w;
+    } else {
+      params.group = g!;
+    }
+    return params;
+  };
+
+  // 通用：加载分组和钱包数据
+  const excludeInitedRef = React.useRef(false);
+  const refreshData = () => {
+    setLoading(true);
+    sharddbAPI.getGroups().then((g) => {
+      setGroups(g);
+      // 首次加载：自动排除所有以 _ 开头的分组
+      if (!excludeInitedRef.current) {
+        excludeInitedRef.current = true;
+        setTotalExcluded((prev) => {
+          const next = new Set(prev);
+          for (const grp of g) {
+            if (grp.group.startsWith('_')) next.add(grp.group);
+          }
+          return next;
+        });
+      }
+      sharddbAPI.getWallets().then((ws) => {
+        const labels: Record<string, string> = {};
+        const pnls: Record<string, number> = {};
+        for (const w of ws) { if (w.label) labels[w.wallet] = w.label; pnls[w.wallet] = w.pnl ?? 0; }
+        setWalletLabels(labels);
+        setWalletPnls(pnls);
+      });
+    }).catch(console.error).finally(() => setLoading(false));
+  };
+
   return (
     <div className="pa-root">
       <div className="pa-header">
         <h1>PolyActivity</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 'var(--pa-fs-base)', color: 'var(--pa-text2)' }}>{groups.length} 分组</span>
-          <button className="pa-chart-tab" style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }} onClick={() => {
-            setLoading(true);
-            sharddbAPI.getGroups().then((g) => {
-              setGroups(g);
-              sharddbAPI.getWallets().then((ws) => {
-                const labels: Record<string, string> = {};
-                const pnls: Record<string, number> = {};
-                for (const w of ws) { if (w.label) labels[w.wallet] = w.label; pnls[w.wallet] = w.pnl ?? 0; }
-                setWalletLabels(labels); setWalletPnls(pnls);
-              });
-            }).catch(console.error).finally(() => setLoading(false));
-          }}>刷新</button>
+          <button className="pa-chart-tab" style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }} onClick={refreshData}>刷新</button>
+          {syncStatus && (
+            <span style={{ fontSize: 'var(--pa-fs-xs)', color: 'var(--pa-text3)', fontVariantNumeric: 'tabular-nums' }}>
+              同步: {syncStatus.oldest_sync_at
+                ? new Date(syncStatus.oldest_sync_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+                : '-'}
+              {' | '}
+              {currentTime.toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+          )}
         </div>
       </div>
 
@@ -572,7 +696,10 @@ export default function PolyActivity() {
                   {activeGroupObj && <span className="pa-bc-count"> ({activeGroupObj.wallet_count})</span>}
                 </span>
                 {selectedWallet && (
-                  <span className="pa-bc-wallet"> / {walletLabels[selectedWallet] || addrShort(selectedWallet)}</span>
+                  <span className="pa-bc-wallet">
+                    {' / '}{walletLabels[selectedWallet] || addrShort(selectedWallet)}
+                    <span className="pa-addr-copy" onClick={() => copyAddr(selectedWallet)} title={selectedWallet}>{addrShort(selectedWallet)}</span>
+                  </span>
                 )}
               </div>
 
@@ -635,7 +762,7 @@ export default function PolyActivity() {
                       calMode={calMode}
                       onModeChange={setCalMode}
                       selectedDate={selectedDate}
-                      onSelectDate={setSelectedDate}
+                      onSelectDate={(d) => { setSelectedDate(d); if (d) setShowOpenPositions(false); }}
                     />
                   </div>
                 )}
@@ -717,44 +844,153 @@ export default function PolyActivity() {
                 </div>
               </div>
 
-              {/* 交易明细（日历和图表下方，全宽，填满剩余高度） */}
-              {selectedDate && (
+              {/* 交易明细 / 未平仓切换（日历和图表下方，全宽，填满剩余高度） */}
+              {(selectedDate || showOpenPositions) && (
                 <div className="pa-card pa-detail-card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <h2 style={{ margin: 0 }}>{selectedDate} 交易明细</h2>
-                    <button className="pa-chart-tab" style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }} onClick={() => {
-                      const text = '市场\t事件\t笔数\t金额\t盈亏\n' + dailyEvents.map((ev) =>
-                        `${ev.condition_id.slice(0,10)}\t${ev.title}\t${ev.count}\t${ev.total_usdc.toFixed(2)}\t${ev.total_pnl.toFixed(2)}`
-                      ).join('\n');
-                      navigator.clipboard.writeText(text).then(() => {
-                        const btn = document.activeElement as HTMLButtonElement;
-                        const orig = btn.textContent;
-                        btn.textContent = '已复制';
-                        setTimeout(() => { btn.textContent = orig; }, 1500);
-                      });
-                    }}>复制</button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div className="pa-switch" onClick={() => setShowOpenPositions((v) => !v)}>
+                        <span className={!showOpenPositions ? 'active' : ''}>平仓明细</span>
+                        <span className={showOpenPositions ? 'active' : ''}>待平持仓</span>
+                      </div>
+                      <h2 style={{ margin: 0 }}>{showOpenPositions ? `${openPositions.length} 个持仓` : selectedDate}</h2>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {showOpenPositions && openPosCacheTTL > 0 && (
+                        <span style={{ fontSize: 'var(--pa-fs-xs)', color: 'var(--pa-text3)' }}>{openPosCacheTTL}s</span>
+                      )}
+                      <button className="pa-chart-tab" style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }} onClick={(e) => {
+                        const text = showOpenPositions
+                          ? '市场\t事件\t持仓量\t成本\t敞口\t均价\t现价\t浮动盈亏\n' + openPositions.map((p) =>
+                              `${p.condition_id.slice(0,10)}\t${p.title}\t${p.shares.toFixed(1)}\t${p.cost.toFixed(2)}\t${p.exposure.toFixed(2)}\t${p.avg_price > 0 ? p.avg_price.toFixed(3) : '-'}\t${p.cur_price > 0 ? p.cur_price.toFixed(3) : '-'}\t${p.cur_price > 0 ? p.unreal_pnl.toFixed(2) : '-'}`
+                            ).join('\n')
+                          : '市场\t事件\t笔数\t金额\t盈亏\n' + dailyEvents.map((ev) =>
+                              `${ev.condition_id.slice(0,10)}\t${ev.title}\t${ev.count}\t${ev.total_usdc.toFixed(2)}\t${ev.total_pnl.toFixed(2)}`
+                            ).join('\n');
+                        navigator.clipboard.writeText(text).then(() => {
+                          const btn = e.currentTarget;
+                          const orig = btn.textContent;
+                          btn.textContent = '已复制';
+                          setTimeout(() => { btn.textContent = orig; }, 1500);
+                        });
+                      }}>复制</button>
+                    </div>
                   </div>
-                  {loadingEvents ? (
-                    <div className="pa-loading"><div className="pa-spinner" />加载中...</div>
-                  ) : dailyEvents.length > 0 ? (
+                  {showOpenPositions ? (
+                    /* ── 未平仓持仓表格 ── */
+                    loadingOpenPos ? (
+                      <div className="pa-loading"><div className="pa-spinner" />加载中...</div>
+                    ) : openPositions.length > 0 ? (
+                      <div className="pa-table-wrap">
+                        <table className="pa-table">
+                          <thead>
+                            <tr>
+                              <th>市场</th>
+                              <SortTh label="事件" field="title" {...openPosSort} onSort={openPosSort.toggle} />
+                              <SortTh label="持仓量" field="shares" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
+                              <SortTh label="成本" field="cost" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
+                              <SortTh label="敞口" field="exposure" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
+                              <SortTh label="均价" field="avg_price" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
+                              <SortTh label="现价" field="cur_price" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
+                              <SortTh label="浮动盈亏" field="unreal_pnl" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
+                            </tr>
+                            <TableSummaryRow columns={[
+                              {},
+                              { content: `${openPositions.length} 持仓` },
+                              {},
+                              { content: fmt(openPositions.reduce((s, p) => s + p.cost, 0)), style: { textAlign: 'right' } },
+                              { content: fmt(openPositions.reduce((s, p) => s + p.exposure, 0)), style: { textAlign: 'right' } },
+                              {},
+                              {},
+                              { content: fmt(openPositions.reduce((s, p) => s + p.unreal_pnl, 0)), style: { textAlign: 'right', color: openPositions.reduce((s, p) => s + p.unreal_pnl, 0) >= 0 ? 'var(--pa-green)' : 'var(--pa-red)' } },
+                            ]} />
+                          </thead>
+                          <tbody>
+                            {openPosSort.sorted.map((p, i) => (
+                              <React.Fragment key={i}>
+                              <tr style={{ cursor: 'pointer' }} onClick={() => setExpandedPos(expandedPos === p.condition_id ? null : p.condition_id)}>
+                                <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 'var(--pa-fs-sm)' }}>
+                                  <span className="pa-market-link" onClick={(e) => { e.stopPropagation(); openMarket(p.condition_id); }} title={p.condition_id}>{p.condition_id.slice(0, 10)}...</span>
+                                </td>
+                                <td style={{ fontSize: 'var(--pa-fs-sm)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.title}>
+                                  <span style={{ marginRight: 4, fontSize: 'var(--pa-fs-xs)', color: 'var(--pa-text2)' }}>{expandedPos === p.condition_id ? '\u25BC' : '\u25B6'}</span>
+                                  {p.title || '-'}
+                                </td>
+                                <td style={{ textAlign: 'right' }}>{p.shares.toFixed(1)}</td>
+                                <td style={{ textAlign: 'right' }}>{fmt(p.cost)}</td>
+                                <td style={{ textAlign: 'right' }}>{fmt(p.exposure)}</td>
+                                <td style={{ textAlign: 'right' }}>{p.avg_price > 0 ? p.avg_price.toFixed(3) : '-'}</td>
+                                <td style={{ textAlign: 'right' }}>{p.cur_price > 0 ? p.cur_price.toFixed(3) : '-'}</td>
+                                <td style={{ textAlign: 'right', color: p.unreal_pnl >= 0 ? 'var(--pa-green)' : 'var(--pa-red)', fontWeight: 600 }}>
+                                  {p.cur_price > 0 ? fmt(p.unreal_pnl) : '-'}
+                                </td>
+                              </tr>
+                              {expandedPos === p.condition_id && (
+                                <tr><td colSpan={8} style={{ padding: 0 }}>
+                                  {loadingPosDetail ? (
+                                    <div className="pa-loading" style={{ height: 60 }}><div className="pa-spinner" /></div>
+                                  ) : (
+                                    <div className="pa-event-detail">
+                                      <div className="pa-event-wallet" style={{ borderBottom: '1px solid var(--pa-border)', paddingBottom: 4, marginBottom: 4 }}>
+                                        <span className="pa-ew-name pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => posDetailSort.toggle('label')}>
+                                          钱包 {posDetailSort.sortKey === 'label' ? (posDetailSort.asc ? '\u25B2' : '\u25BC') : ''}
+                                        </span>
+                                        <span className="pa-ew-info pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => posDetailSort.toggle('shares')}>
+                                          持仓 {posDetailSort.sortKey === 'shares' ? (posDetailSort.asc ? '\u25B2' : '\u25BC') : ''}
+                                        </span>
+                                        <span className="pa-ew-pnl pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => posDetailSort.toggle('exposure')}>
+                                          敞口 {posDetailSort.sortKey === 'exposure' ? (posDetailSort.asc ? '\u25B2' : '\u25BC') : ''}
+                                        </span>
+                                      </div>
+                                      {posDetailSort.sorted.map((r, ri) => (
+                                        <div key={ri} className="pa-event-wallet">
+                                          <span className="pa-ew-name">
+                                            {r.label || addrShort(r.wallet)}
+                                            <span className="pa-addr-copy" onClick={(e) => { e.stopPropagation(); copyAddr(r.wallet); }} title={r.wallet}>{addrShort(r.wallet)}</span>
+                                          </span>
+                                          <span className="pa-ew-info">
+                                            <span className="pa-ew-rec">{r.shares.toFixed(1)} 份 @{r.avg_price > 0 ? r.avg_price.toFixed(3) : '-'}</span>
+                                          </span>
+                                          <span className="pa-ew-pnl">{fmt(r.exposure)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </td></tr>
+                              )}
+                              </React.Fragment>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="pa-empty" style={{ height: 80 }}>无未平仓持仓</div>
+                    )
+                  ) : (
+                    /* ── 交易明细表格 ── */
+                    loadingEvents ? (
+                      <div className="pa-loading"><div className="pa-spinner" />加载中...</div>
+                    ) : dailyEvents.length > 0 ? (
                     <div className="pa-table-wrap">
                       <table className="pa-table">
                         <thead>
                           <tr>
                             <th>市场</th>
-                            <th>事件</th>
-                            <th style={{ textAlign: 'right' }}>笔数</th>
-                            <th style={{ textAlign: 'right' }}>金额</th>
-                            <th className="pa-th-sort" style={{ textAlign: 'right' }} onClick={() => {
-                              setDetailSortAsc((v) => !v);
-                              setDailyEvents((prev) => [...prev].sort((a, b) => !detailSortAsc ? a.total_pnl - b.total_pnl : b.total_pnl - a.total_pnl));
-                            }}>
-                              盈亏 {detailSortAsc ? '\u25B2' : '\u25BC'}
-                            </th>
+                            <SortTh label="事件" field="title" {...eventSort} onSort={eventSort.toggle} />
+                            <SortTh label="笔数" field="count" {...eventSort} onSort={eventSort.toggle} style={{ textAlign: 'right' }} />
+                            <SortTh label="金额" field="total_usdc" {...eventSort} onSort={eventSort.toggle} style={{ textAlign: 'right' }} />
+                            <SortTh label="盈亏" field="total_pnl" {...eventSort} onSort={eventSort.toggle} style={{ textAlign: 'right' }} />
                           </tr>
+                          <TableSummaryRow columns={[
+                            {},
+                            { content: `${dailyEvents.length} 事件` },
+                            { content: dailyEvents.reduce((s, e) => s + e.count, 0), style: { textAlign: 'right' } },
+                            { content: fmt(dailyEvents.reduce((s, e) => s + e.total_usdc, 0)), style: { textAlign: 'right' } },
+                            { content: fmt(dailyEvents.reduce((s, e) => s + e.total_pnl, 0)), style: { textAlign: 'right', color: dailyEvents.reduce((s, e) => s + e.total_pnl, 0) >= 0 ? 'var(--pa-green)' : 'var(--pa-red)' } },
+                          ]} />
                         </thead>
                         <tbody>
-                          {dailyEvents.map((ev, i) => (
+                          {eventSort.sorted.map((ev, i) => (
                             <React.Fragment key={i}>
                               <tr style={{ cursor: 'pointer' }} onClick={() => setExpandedEvent(expandedEvent === ev.title ? null : ev.title)}>
                                 <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 'var(--pa-fs-sm)' }}>
@@ -777,17 +1013,24 @@ export default function PolyActivity() {
                                   ) : (
                                     <div className="pa-event-detail">
                                       <div className="pa-event-wallet" style={{ borderBottom: '1px solid var(--pa-border)', paddingBottom: 4, marginBottom: 4 }}>
-                                        <span className="pa-ew-name" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }}>钱包</span>
-                                        <span className="pa-ew-info" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }}>操作</span>
-                                        <span className="pa-ew-pnl pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => setDetailPnlAsc((v) => !v)}>
-                                          盈亏 {detailPnlAsc ? '\u25B2' : '\u25BC'}
+                                        <span className="pa-ew-name pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => detailSort.toggle('label')}>
+                                          钱包 {detailSort.sortKey === 'label' ? (detailSort.asc ? '\u25B2' : '\u25BC') : ''}
+                                        </span>
+                                        <span className="pa-ew-info pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => detailSort.toggle('usdc_size')}>
+                                          操作 {detailSort.sortKey === 'usdc_size' ? (detailSort.asc ? '\u25B2' : '\u25BC') : ''}
+                                        </span>
+                                        <span className="pa-ew-pnl pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => detailSort.toggle('pnl')}>
+                                          盈亏 {detailSort.sortKey === 'pnl' ? (detailSort.asc ? '\u25B2' : '\u25BC') : ''}
                                         </span>
                                       </div>
-                                      {[...expandedDetail].sort((a, b) => detailPnlAsc ? (a.pnl ?? 0) - (b.pnl ?? 0) : (b.pnl ?? 0) - (a.pnl ?? 0)).map((r, ri) => {
+                                      {detailSort.sorted.map((r, ri) => {
                                         const action = r.type === 'TRADE' ? r.side : r.type;
                                         return (
                                           <div key={ri} className="pa-event-wallet">
-                                            <span className="pa-ew-name">{r.label || addrShort(r.wallet)}</span>
+                                            <span className="pa-ew-name">
+                                              {r.label || addrShort(r.wallet)}
+                                              <span className="pa-addr-copy" onClick={(e) => { e.stopPropagation(); copyAddr(r.wallet); }} title={r.wallet}>{addrShort(r.wallet)}</span>
+                                            </span>
                                             <span className="pa-ew-info">
                                               <span className="pa-ew-rec">{action} {fmt(r.usdc_size)} @{r.price > 0 ? r.price.toFixed(3) : '-'}</span>
                                             </span>
@@ -802,22 +1045,11 @@ export default function PolyActivity() {
                             </React.Fragment>
                           ))}
                         </tbody>
-                        <tfoot>
-                          <tr style={{ fontWeight: 600, borderTop: '2px solid var(--pa-border)' }}>
-                            <td></td>
-                            <td>合计 ({dailyEvents.length} 事件)</td>
-                            <td style={{ textAlign: 'right' }}>{dailyEvents.reduce((s, e) => s + e.count, 0)}</td>
-                            <td style={{ textAlign: 'right' }}>{fmt(dailyEvents.reduce((s, e) => s + e.total_usdc, 0))}</td>
-                            <td style={{ textAlign: 'right', color: dailyEvents.reduce((s, e) => s + e.total_pnl, 0) >= 0 ? 'var(--pa-green)' : 'var(--pa-red)' }}>
-                              {fmt(dailyEvents.reduce((s, e) => s + e.total_pnl, 0))}
-                            </td>
-                          </tr>
-                        </tfoot>
                       </table>
                     </div>
                   ) : (
                     <div className="pa-empty" style={{ height: 80 }}>无记录</div>
-                  )}
+                  ))}
                 </div>
               )}
             </>

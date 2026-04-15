@@ -879,6 +879,24 @@ export const sharddbAPI = {
     const response = await api.get<{ list: SharddbRecordItem[]; total: number }>('/api/sharddb/records', { params });
     return response.data;
   },
+  getOpenPositions: async (params: { wallet?: string; group?: string; exclude_wallets?: string }): Promise<{
+    positions: { condition_id: string; token_id: string; title: string; shares: number; cost: number; revenue: number; exposure: number; avg_price: number; cur_price: number; unreal_pnl: number; wallet_count: number }[];
+    total: number;
+  }> => {
+    const response = await api.get('/api/sharddb/open_positions', { params });
+    return response.data;
+  },
+  getSyncStatus: async (): Promise<{ wallet_count: number; oldest_sync_at: string; newest_sync_at: string }> => {
+    const response = await api.get('/api/sharddb/sync_status');
+    return response.data;
+  },
+  getOpenPositionDetail: async (conditionId: string, params: { wallet?: string; group?: string; exclude_wallets?: string }): Promise<{
+    records: { wallet: string; label: string; shares: number; cost: number; revenue: number; exposure: number; avg_price: number }[];
+    total: number;
+  }> => {
+    const response = await api.get('/api/sharddb/open_position_detail', { params: { condition_id: conditionId, ...params } });
+    return response.data;
+  },
 };
 
 export interface SharddbEquityCurvePoint {

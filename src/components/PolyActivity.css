@@ -288,6 +288,29 @@
 .pa-chart-tab:hover { color: var(--pa-text); border-color: #cbd5e1; }
 .pa-chart-tab.active { color: var(--pa-accent); border-color: var(--pa-accent); background: var(--pa-accent-soft); }
 
+/* toggle switch */
+.pa-switch {
+  display: inline-flex;
+  background: var(--pa-bg);
+  border: 1px solid var(--pa-border);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+}
+.pa-switch span {
+  padding: 4px 12px;
+  font-size: var(--pa-fs-sm);
+  font-weight: 500;
+  color: var(--pa-text3);
+  transition: all 0.15s;
+}
+.pa-switch span.active {
+  background: var(--pa-accent);
+  color: #fff;
+  border-radius: 7px;
+}
+
 /* ── Monthly calendar ── */
 .pa-cal-nav {
   background: var(--pa-bg);
@@ -363,6 +386,14 @@
 .pa-table tbody tr { transition: background 0.08s; }
 .pa-th-sort { cursor: pointer; user-select: none; transition: color 0.12s; }
 .pa-th-sort:hover { color: var(--pa-text); }
+.pa-summary-row td {
+  padding: 4px 10px;
+  font-size: var(--pa-fs-sm);
+  font-weight: 600;
+  color: var(--pa-text2);
+  background: var(--pa-bg);
+  border-bottom: 1px solid var(--pa-border);
+}
 
 /* type filter buttons */
 .pa-type-filters { display: flex; gap: 4px; }
@@ -450,3 +481,31 @@
   color: var(--pa-text3);
   font-size: var(--pa-fs-md);
 }
+
+/* toast */
+.pa-toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--pa-text, #0f172a);
+  color: #fff;
+  padding: 6px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  z-index: 9999;
+  animation: pa-toast-in 0.15s ease-out, pa-toast-out 0.3s ease-in 1.2s forwards;
+  pointer-events: none;
+}
+@keyframes pa-toast-in { from { opacity: 0; transform: translateX(-50%) translateY(-8px); } to { opacity: 1; transform: translateX(-50%); } }
+@keyframes pa-toast-out { to { opacity: 0; } }
+
+/* clickable address */
+.pa-addr-copy {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--pa-fs-xs);
+  color: var(--pa-text3);
+  cursor: pointer;
+  margin-left: 4px;
+}
+.pa-addr-copy:hover { color: var(--pa-accent); }
