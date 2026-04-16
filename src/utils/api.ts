@@ -136,6 +136,7 @@ export interface LoginResponse {
   username: string;
   is_admin: boolean;
   role?: Role;
+  group_owner?: string;
   message: string;
 }
 
@@ -247,6 +248,7 @@ export const authAPI = {
         localStorage.setItem('is_admin', String(!!response.data.is_admin));
         const role = response.data.role ?? (response.data.is_admin ? 'admin' : 'data_entry');
         localStorage.setItem('role', role);
+        localStorage.setItem('group_owner', response.data.group_owner ?? '');
       } catch (e) {
         secureLog.error('保存token失败:', e);
         throw new Error('无法保存登录状态');

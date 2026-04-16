@@ -73,7 +73,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   const menuItems = useMemo(() => {
     const all: { key: string; icon: React.ReactNode; label: string; roles: Role[] }[] = [
-      { key: '/secrets', icon: <KeyOutlined />, label: '密钥管理', roles: ['data_entry', 'customer', 'admin'] },
+      { key: '/secrets', icon: <KeyOutlined />, label: '密钥管理', roles: ['data_entry', 'admin'] },
       { key: '/polyactivity', icon: <LineChartOutlined />, label: '客户端看板', roles: ['customer', 'admin'] },
       { key: '/workers', icon: <MonitorOutlined />, label: '工作机状态', roles: ['admin'] },
     ];
@@ -248,9 +248,13 @@ function App() {
           path="/secrets"
           element={
             <ProtectedRoute>
-              <MainLayout>
-                <SecretManagement />
-              </MainLayout>
+              {getRole() === 'customer' ? (
+                <Navigate to="/polyactivity" replace />
+              ) : (
+                <MainLayout>
+                  <SecretManagement />
+                </MainLayout>
+              )}
             </ProtectedRoute>
           }
         />

@@ -254,13 +254,27 @@ function ActivityCalendar({ daily, wallet, group, calMode, onModeChange, selecte
   );
 }
 
+function NoGroupOwnerHint() {
+  return (
+    <div className="pa-root" style={{ alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center', color: 'var(--pa-text2)', fontSize: 'var(--pa-fs-lg)' }}>
+        当前账户未绑定分组，请联系管理员绑定分组后查看数据
+      </div>
+    </div>
+  );
+}
+
 export default function PolyActivity() {
+  const role = localStorage.getItem('role');
+  const groupOwner = localStorage.getItem('group_owner');
+  const noGroup = role === 'customer' && !groupOwner;
+
   const [groups, setGroups] = useState<SharddbGroupItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
 
   // Selection: group or single wallet within a group
-  const [selectedGroup, setSelectedGroup] = useState<string | null>('_total');
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(role === 'customer' ? null : '_total');
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
 
   // Data
@@ -390,7 +404,10 @@ export default function PolyActivity() {
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
   const [expandedDetail, setExpandedDetail] = useState<{ wallet: string; label: string; type: string; side: string; size: number; usdc_size: number; price: number; pnl?: number; ts: number }[]>([]);
   const [loadingEventDetail, setLoadingEventDetail] = useState(false);
-  const eventSort = useSort(dailyEvents, 'total_pnl');
+  const filteredEvents = role === 'customer'
+    ? dailyEvents.filter((e) => e.title !== '做市奖励' && !(e.total_usdc > 0 && e.total_pnl / e.total_usdc < -0.1))
+    : dailyEvents;
+  const eventSort = useSort(filteredEvents, 'total_pnl');
   const detailSort = useSort(expandedDetail, 'pnl');
 
   // Open positions state
@@ -558,8 +575,12 @@ export default function PolyActivity() {
     setLoading(true);
     sharddbAPI.getGroups().then((g) => {
       setGroups(g);
-      // 首次加载：自动排除所有以 _ 开头的分组
-      if (!excludeInitedRef.current) {
+      if (role === 'customer') {
+        // customer: 自动选中第一个非下划线分组
+        const first = g.find((grp) => !grp.group.startsWith('_'));
+        if (first && !selectedGroup) setSelectedGroup(first.group);
+      } else if (!excludeInitedRef.current) {
+        // admin: 首次加载自动排除所有以 _ 开头的分组
         excludeInitedRef.current = true;
         setTotalExcluded((prev) => {
           const next = new Set(prev);
@@ -578,6 +599,8 @@ export default function PolyActivity() {
       });
     }).catch(console.error).finally(() => setLoading(false));
   };
+
+  if (noGroup) return <NoGroupOwnerHint />;
 
   return (
     <div className="pa-root">
@@ -611,7 +634,7 @@ export default function PolyActivity() {
             <div className="pa-loading"><div className="pa-spinner" />加载中...</div>
           ) : (
             <div className="pa-group-list">
-              {filteredGroups.map((g) => (
+              {filteredGroups.filter((g) => role !== 'customer' || !g.group.startsWith('_')).map((g) => (
                 <div key={g.group}>
                   {g.group === '_total' ? (
                     <>
@@ -863,10 +886,12 @@ export default function PolyActivity() {
                 <div className="pa-card pa-detail-card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div className="pa-switch" onClick={() => setShowOpenPositions((v) => !v)}>
-                        <span className={!showOpenPositions ? 'active' : ''}>平仓明细</span>
-                        <span className={showOpenPositions ? 'active' : ''}>待平持仓</span>
-                      </div>
+                      {role !== 'customer' ? (
+                        <div className="pa-switch" onClick={() => setShowOpenPositions((v) => !v)}>
+                          <span className={!showOpenPositions ? 'active' : ''}>平仓明细</span>
+                          <span className={showOpenPositions ? 'active' : ''}>待平持仓</span>
+                        </div>
+                      ) : null}
                       <h2 style={{ margin: 0 }}>{showOpenPositions ? `${openPositions.length} 个持仓` : selectedDate}</h2>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -878,7 +903,7 @@ export default function PolyActivity() {
                           ? '市场\t事件\t开仓时间\t持仓量\t成本\t敞口\t均价\t现价\t浮动盈亏\n' + openPositions.map((p) =>
                               `${p.condition_id.slice(0,10)}\t${p.title}\t${p.first_buy_ts > 0 ? new Date(p.first_buy_ts * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}\t${p.shares.toFixed(1)}\t${p.cost.toFixed(2)}\t${p.exposure.toFixed(2)}\t${p.avg_price > 0 ? p.avg_price.toFixed(3) : '-'}\t${p.cur_price > 0 ? p.cur_price.toFixed(3) : '-'}\t${p.cur_price > 0 ? p.unreal_pnl.toFixed(2) : '-'}`
                             ).join('\n')
-                          : '市场\t事件\t笔数\t金额\t盈亏\n' + dailyEvents.map((ev) =>
+                          : '市场\t事件\t笔数\t金额\t盈亏\n' + filteredEvents.map((ev) =>
                               `${ev.condition_id.slice(0,10)}\t${ev.title}\t${ev.count}\t${ev.total_usdc.toFixed(2)}\t${ev.total_pnl.toFixed(2)}`
                             ).join('\n');
                         navigator.clipboard.writeText(text).then(() => {
@@ -989,7 +1014,7 @@ export default function PolyActivity() {
                     /* ── 交易明细表格 ── */
                     loadingEvents ? (
                       <div className="pa-loading"><div className="pa-spinner" />加载中...</div>
-                    ) : dailyEvents.length > 0 ? (
+                    ) : filteredEvents.length > 0 ? (
                     <div className="pa-table-wrap">
                       <table className="pa-table">
                         <thead>
@@ -1002,10 +1027,10 @@ export default function PolyActivity() {
                           </tr>
                           <TableSummaryRow columns={[
                             {},
-                            { content: `${dailyEvents.length} 事件` },
-                            { content: dailyEvents.reduce((s, e) => s + e.count, 0), style: { textAlign: 'right' } },
-                            { content: fmt(dailyEvents.reduce((s, e) => s + e.total_usdc, 0)), style: { textAlign: 'right' } },
-                            { content: fmt(dailyEvents.reduce((s, e) => s + e.total_pnl, 0)), style: { textAlign: 'right', color: dailyEvents.reduce((s, e) => s + e.total_pnl, 0) >= 0 ? 'var(--pa-green)' : 'var(--pa-red)' } },
+                            { content: `${filteredEvents.length} 事件` },
+                            { content: filteredEvents.reduce((s, e) => s + e.count, 0), style: { textAlign: 'right' } },
+                            { content: fmt(filteredEvents.reduce((s, e) => s + e.total_usdc, 0)), style: { textAlign: 'right' } },
+                            { content: fmt(filteredEvents.reduce((s, e) => s + e.total_pnl, 0)), style: { textAlign: 'right', color: filteredEvents.reduce((s, e) => s + e.total_pnl, 0) >= 0 ? 'var(--pa-green)' : 'var(--pa-red)' } },
                           ]} />
                         </thead>
                         <tbody>
