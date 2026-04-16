@@ -743,12 +743,13 @@ export default function PolyActivity() {
               {/* Stats */}
               {summary && (
                 <div className="pa-stats">
-                  <div className="pa-stat-card">
-                    <div className="label">总盈亏</div>
-                    <div className={`value${totalPnl >= 0 ? ' pos' : ' neg'}`}>{fmt(totalPnl)}</div>
-                  </div>
-                  {(() => {
-                    // 存取款数据：单钱包用 equityCurve，分组用 groups 数据
+                  {role !== 'customer' && (
+                    <div className="pa-stat-card">
+                      <div className="label">总盈亏</div>
+                      <div className={`value${totalPnl >= 0 ? ' pos' : ' neg'}`}>{fmt(totalPnl)}</div>
+                    </div>
+                  )}
+                  {role !== 'customer' && (() => {
                     let dep = 0, wit = 0, hasData = false;
                     if (selectedWallet && equityCurve) {
                       dep = equityCurve.total_deposit; wit = equityCurve.total_withdraw; hasData = true;
@@ -776,15 +777,23 @@ export default function PolyActivity() {
                     <div className="value">{fmtShort(summary.total_buy)}</div>
                     <div className="sub">卖出: {fmtShort(summary.total_sell)}</div>
                   </div>
-                  <div className="pa-stat-card">
-                    <div className="label">胜/负</div>
-                    <div className="value">
-                      <span style={{ color: 'var(--pa-green)' }}>{summary.wins}</span>
-                      {' / '}
-                      <span style={{ color: 'var(--pa-red)' }}>{summary.losses}</span>
+                  {role !== 'customer' ? (
+                    <div className="pa-stat-card">
+                      <div className="label">胜/负</div>
+                      <div className="value">
+                        <span style={{ color: 'var(--pa-green)' }}>{summary.wins}</span>
+                        {' / '}
+                        <span style={{ color: 'var(--pa-red)' }}>{summary.losses}</span>
+                      </div>
+                      <div className="sub">持仓: {summary.open_count}</div>
                     </div>
-                    <div className="sub">持仓: {summary.open_count}</div>
-                  </div>
+                  ) : (
+                    <div className="pa-stat-card">
+                      <div className="label">平仓数量</div>
+                      <div className="value">{summary.wins + summary.losses}</div>
+                      <div className="sub">持仓: {summary.open_count}</div>
+                    </div>
+                  )}
                 </div>
               )}
 
