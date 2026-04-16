@@ -31,17 +31,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function AdminRoute({ children }: { children: React.ReactNode }) {
-  const token = localStorage.getItem('token');
-  const role = getRole();
-  if (!token) {
-    return <Navigate to="/login" replace />;
-  }
-  if (role !== 'admin') {
-    return <Navigate to="/secrets" replace />;
-  }
-  return <>{children}</>;
-}
 
 function CustomerDashboardRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token');
@@ -75,7 +64,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
     const all: { key: string; icon: React.ReactNode; label: string; roles: Role[] }[] = [
       { key: '/secrets', icon: <KeyOutlined />, label: '密钥管理', roles: ['data_entry', 'admin'] },
       { key: '/polyactivity', icon: <LineChartOutlined />, label: '客户端看板', roles: ['customer', 'admin'] },
-      { key: '/workers', icon: <MonitorOutlined />, label: '工作机状态', roles: ['admin'] },
+      { key: '/workers', icon: <MonitorOutlined />, label: '工作机状态', roles: ['customer', 'admin'] },
     ];
     return all
       .filter((item) => item.roles.includes(role))
@@ -261,11 +250,11 @@ function App() {
         <Route
           path="/workers"
           element={
-            <AdminRoute>
+            <CustomerDashboardRoute>
               <MainLayout>
                 <WorkerStatus />
               </MainLayout>
-            </AdminRoute>
+            </CustomerDashboardRoute>
           }
         />
         <Route

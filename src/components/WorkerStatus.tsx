@@ -26,7 +26,80 @@ function abbreviateProxyAddressForDisplay(addr: string): string {
   return t;
 }
 
+import { getRole } from '../utils/api';
+
+function CustomerWorkerStatus() {
+  const [statuses, setStatuses] = useState<WorkerStatusType[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = () => {
+      workersAPI.getWorkerStatuses(true).then((res) => {
+        setStatuses(res.statuses || []);
+      }).catch(() => {}).finally(() => setLoading(false));
+    };
+    load();
+    const id = setInterval(load, 10000);
+    return () => clearInterval(id);
+  }, []);
+
+  const online = statuses.filter((s) => s.status === 'online').length;
+
+  return (
+    <div className="worker-status-container">
+      <header className="worker-status-page-head">
+        <div className="worker-status-page-head-text">
+          <h1 className="worker-status-title">工作机状态</h1>
+          <p className="worker-status-subtitle">在线 {online} / 总数 {statuses.length}</p>
+        </div>
+      </header>
+      <div className="main-layout">
+        <div className="main-content">
+          {loading ? (
+            <div className="loading-wrap"><Spin size="large" tip="加载中…" /></div>
+          ) : (
+            <div className="table-container">
+              <table className="worker-table">
+                <thead>
+                  <tr>
+                    <th>密钥名称</th>
+                    <th>代理地址</th>
+                    <th>状态</th>
+                    <th style={{ textAlign: 'right' }}>持仓数</th>
+                    <th style={{ textAlign: 'right' }}>挂单数</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {statuses.map((s) => {
+                    let posCount = 0, ordCount = 0;
+                    try {
+                      const d = s.data ? JSON.parse(s.data) : {};
+                      posCount = d.position_count ?? d.positions ?? 0;
+                      ordCount = d.order_count ?? d.orders ?? 0;
+                    } catch {}
+                    return (
+                      <tr key={s.id}>
+                        <td>{s.key_name || '-'}</td>
+                        <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{s.proxy_address ? abbreviateProxyAddressForDisplay(s.proxy_address) : '-'}</td>
+                        <td><Tag color={s.status === 'online' ? 'green' : 'red'}>{s.status === 'online' ? '在线' : '离线'}</Tag></td>
+                        <td style={{ textAlign: 'right' }}>{posCount}</td>
+                        <td style={{ textAlign: 'right' }}>{ordCount}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function WorkerStatus() {
+  if (getRole() === 'customer') return <CustomerWorkerStatus />;
+
   const location = useLocation();
   const [statuses, setStatuses] = useState<WorkerStatusType[]>([]);
   const [loading, setLoading] = useState(true);
