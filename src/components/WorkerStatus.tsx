@@ -50,16 +50,30 @@ function CustomerWorkerStatus() {
       <header className="worker-status-page-head">
         <div className="worker-status-page-head-text">
           <h1 className="worker-status-title">工作机状态</h1>
-          <p className="worker-status-subtitle">在线 {online} / 总数 {statuses.length}</p>
+          <p className="worker-status-subtitle">在线 {online} / 总数 {statuses.length} · 自动刷新</p>
         </div>
       </header>
+      <div className="stats-container-top">
+        <div className="stat-item-top stat-online">
+          <span className="stat-label">在线</span>
+          <span className="stat-value">{online}</span>
+        </div>
+        <div className="stat-item-top stat-offline">
+          <span className="stat-label">离线</span>
+          <span className="stat-value">{statuses.length - online}</span>
+        </div>
+        <div className="stat-item-top">
+          <span className="stat-label">总数</span>
+          <span className="stat-value">{statuses.length}</span>
+        </div>
+      </div>
       <div className="main-layout">
         <div className="main-content">
           {loading ? (
             <div className="loading-wrap"><Spin size="large" tip="加载中…" /></div>
           ) : (
             <div className="table-container">
-              <table className="worker-table">
+              <table className="worker-status-table">
                 <thead>
                   <tr>
                     <th>密钥名称</th>
@@ -80,7 +94,7 @@ function CustomerWorkerStatus() {
                     return (
                       <tr key={s.id}>
                         <td>{s.key_name || '-'}</td>
-                        <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{s.proxy_address ? abbreviateProxyAddressForDisplay(s.proxy_address) : '-'}</td>
+                        <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: '0.8rem' }}>{s.proxy_address ? abbreviateProxyAddressForDisplay(s.proxy_address) : '-'}</td>
                         <td><Tag color={s.status === 'online' ? 'green' : 'red'}>{s.status === 'online' ? '在线' : '离线'}</Tag></td>
                         <td style={{ textAlign: 'right' }}>{posCount}</td>
                         <td style={{ textAlign: 'right' }}>{ordCount}</td>
