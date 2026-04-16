@@ -405,7 +405,7 @@ export default function PolyActivity() {
   const [expandedDetail, setExpandedDetail] = useState<{ wallet: string; label: string; type: string; side: string; size: number; usdc_size: number; price: number; pnl?: number; ts: number }[]>([]);
   const [loadingEventDetail, setLoadingEventDetail] = useState(false);
   const filteredEvents = role === 'customer'
-    ? dailyEvents.filter((e) => e.title !== '做市奖励' && !(e.total_usdc > 0 && e.total_pnl / e.total_usdc < -0.1))
+    ? dailyEvents.filter((e) => e.title !== '做市奖励' && (selectedDate === '2026-04-11' || !(e.total_usdc > 0 && e.total_pnl / e.total_usdc < -0.1)))
     : dailyEvents;
   const eventSort = useSort(filteredEvents, 'total_pnl');
   const detailSort = useSort(expandedDetail, 'pnl');
