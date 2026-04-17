@@ -23,11 +23,11 @@ const { Text } = Typography;
 
 type AuthMode = 'login' | 'register';
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token');
-  if (!token) {
-    return <Navigate to="/login" replace />;
-  }
+  const role = getRole();
+  if (!token) return <Navigate to="/login" replace />;
+  if (role === 'customer') return <Navigate to="/polyactivity" replace />;
   return <>{children}</>;
 }
 
@@ -237,15 +237,11 @@ function App() {
         <Route
           path="/secrets"
           element={
-            <ProtectedRoute>
-              {getRole() === 'customer' ? (
-                <Navigate to="/polyactivity" replace />
-              ) : (
-                <MainLayout>
-                  <SecretManagement />
-                </MainLayout>
-              )}
-            </ProtectedRoute>
+            <AdminOnlyRoute>
+              <MainLayout>
+                <SecretManagement />
+              </MainLayout>
+            </AdminOnlyRoute>
           }
         />
         <Route
