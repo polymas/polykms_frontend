@@ -165,7 +165,8 @@ function AuthPage() {
   }, [location.pathname]);
 
   const handleLoginSuccess = () => {
-    navigate('/secrets');
+    const role = getRole();
+    navigate(role === 'customer' ? '/polyactivity' : '/secrets');
   };
 
   const handleRegisterSuccess = () => {
@@ -268,8 +269,8 @@ function App() {
           }
         />
 
-        <Route path="/" element={<Navigate to="/secrets" replace />} />
-        <Route path="*" element={<Navigate to="/secrets" replace />} />
+        <Route path="/" element={<Navigate to={getRole() === 'customer' ? '/polyactivity' : '/secrets'} replace />} />
+        <Route path="*" element={<Navigate to={getRole() === 'customer' ? '/polyactivity' : '/secrets'} replace />} />
       </Routes>
     </BrowserRouter>
   );
