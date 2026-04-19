@@ -15,6 +15,7 @@ import SecretManagement from './components/SecretManagement';
 import WorkerStatus from './components/WorkerStatus';
 import PolyActivity from './components/PolyActivity';
 import EnvironmentBanner from './components/EnvironmentBanner';
+import SetupTOTP from './components/SetupTOTP';
 import { getRole, type Role } from './utils/api';
 import './App.css';
 
@@ -165,6 +166,7 @@ function AuthPage() {
   }, [location.pathname]);
 
   const handleLoginSuccess = () => {
+    // setup-2fa 由 Login 组件内部直接导航过去（带 setup_token state），不走这里
     const role = getRole();
     navigate(role === 'customer' ? '/polyactivity' : '/secrets');
   };
@@ -233,6 +235,8 @@ function App() {
       <Routes>
         <Route path="/login" element={<AuthPage />} />
         <Route path="/register" element={<AuthPage />} />
+        {/* /setup-2fa 不依赖 JWT；它的"鉴权"是 location.state 里的 setup_token，由 Login 页 push 过来 */}
+        <Route path="/setup-2fa" element={<SetupTOTP />} />
 
         <Route
           path="/secrets"

@@ -138,6 +138,26 @@ export interface LoginResponse {
   role?: Role;
   group_owner?: string;
   message: string;
+  /** admin 已绑定 TOTP；前端拿到后须显示 6 位输入框，再调 loginTOTP */
+  requires_totp?: boolean;
+  /** 二步验证用，5 分钟有效 */
+  challenge_token?: string;
+  /** admin 未绑定 TOTP；前端必须凭 setup_token 走 /setup-2fa */
+  requires_setup_totp?: boolean;
+  /** 首次绑定专用 token，5 分钟有效；只能用于 setup / verify-setup */
+  setup_token?: string;
+}
+
+export interface LoginTOTPRequest {
+  challenge_token: string;
+  code: string;
+}
+
+export interface TOTPSetupResponse {
+  secret: string;
+  qr_png_base64: string;
+  issuer: string;
+  account_name: string;
 }
 
 export interface Secret {
@@ -234,26 +254,59 @@ export const authAPI = {
   },
 
   /**
-   * 用户登录
+   * 用户登录（第一步：用户名 + 密码）
+   * - admin 已绑定 TOTP：响应只含 challenge_token，token 字段为空，前端需调 loginTOTP
+   * - admin 未绑定 TOTP：token 已发，但响应里 must_setup_totp=true，前端应跳 /setup-2fa
+   * - 其他角色：照旧返回 token
    */
   login: async (data: LoginRequest): Promise<LoginResponse> => {
     const response = await api.post<LoginResponse>('/api/v1/auth/login', data);
-    // 保存 token 与用户信息到 localStorage（注意：存在 XSS 风险，建议后端使用 httpOnly cookie）
     if (response.data.token) {
-      try {
-        localStorage.setItem('token', response.data.token);
-        if (response.data.username) {
-          localStorage.setItem('username', response.data.username);
-        }
-        localStorage.setItem('is_admin', String(!!response.data.is_admin));
-        const role = response.data.role ?? (response.data.is_admin ? 'admin' : 'data_entry');
-        localStorage.setItem('role', role);
-        localStorage.setItem('group_owner', response.data.group_owner ?? '');
-      } catch (e) {
-        secureLog.error('保存token失败:', e);
-        throw new Error('无法保存登录状态');
-      }
+      persistLoginState(response.data);
     }
+    return response.data;
+  },
+
+  /**
+   * 二步登录（第二步：提交 challenge_token + 6 位 TOTP 码）
+   */
+  loginTOTP: async (data: LoginTOTPRequest): Promise<LoginResponse> => {
+    const response = await api.post<LoginResponse>('/api/v1/auth/login/totp', data);
+    if (response.data.token) {
+      persistLoginState(response.data);
+    }
+    return response.data;
+  },
+
+  /**
+   * 公开接口：用 setup_token 鉴权申请绑定 TOTP（每次调用都会覆盖旧 secret）
+   * 调用前提：admin 密码登录响应中 requires_setup_totp=true，此处用响应里的 setup_token
+   */
+  setupTOTP: async (setupToken: string): Promise<TOTPSetupResponse> => {
+    const response = await api.post<TOTPSetupResponse>('/api/v1/auth/totp/setup', {
+      setup_token: setupToken,
+    });
+    return response.data;
+  },
+
+  /**
+   * 公开接口：提交 setup_token + 6 位码完成绑定，**响应里直接含正式 JWT**
+   * 成功后会自动写 localStorage，前端跳到主界面即可
+   */
+  verifySetupTOTP: async (setupToken: string, code: string): Promise<LoginResponse> => {
+    const response = await api.post<LoginResponse>('/api/v1/auth/totp/verify-setup', {
+      setup_token: setupToken,
+      code,
+    });
+    if (response.data.token) {
+      persistLoginState(response.data);
+    }
+    return response.data;
+  },
+
+  /** 关闭 TOTP（密码 + 6 位码二次确认） */
+  disableTOTP: async (password: string, code: string): Promise<{ message: string }> => {
+    const response = await api.post<{ message: string }>('/api/v1/auth/totp/disable', { password, code });
     return response.data;
   },
 
@@ -264,6 +317,21 @@ export const authAPI = {
     localStorage.removeItem('token');
   },
 };
+
+/** 写入 token 与用户信息到 localStorage */
+function persistLoginState(resp: LoginResponse) {
+  try {
+    localStorage.setItem('token', resp.token);
+    if (resp.username) localStorage.setItem('username', resp.username);
+    localStorage.setItem('is_admin', String(!!resp.is_admin));
+    const role = resp.role ?? (resp.is_admin ? 'admin' : 'data_entry');
+    localStorage.setItem('role', role);
+    localStorage.setItem('group_owner', resp.group_owner ?? '');
+  } catch (e) {
+    secureLog.error('保存token失败:', e);
+    throw new Error('无法保存登录状态');
+  }
+}
 
 // 工作机状态相关类型
 export interface WorkerStatus {
