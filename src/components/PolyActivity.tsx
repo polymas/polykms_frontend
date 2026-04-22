@@ -35,12 +35,44 @@ const fmtShort = (n: number | null | undefined) => {
   if (n == null) return '-';
   const s = n < 0 ? '-' : '';
   const a = Math.abs(n);
-  if (a >= 1e6) return s + '$' + (a / 1e6).toFixed(1) + 'M';
+  if (a >= 1e9) return s + '$' + (a / 1e9).toFixed(2) + 'B';
+  if (a >= 1e6) return s + '$' + (a / 1e6).toFixed(2) + 'M';
   if (a >= 1e3) return s + '$' + (a / 1e3).toFixed(1) + 'K';
   return s + '$' + a.toFixed(0);
 };
 const addrShort = (w: string) => (w.length > 12 ? w.slice(0, 6) + '...' + w.slice(-4) : w);
 const fmtDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// Local cache for event CLOB volumes. Keyed by condition_id (lowercase). Each entry
+// carries its own expires_at so save() doesn't accidentally extend stale entries.
+const VOLUME_CACHE_KEY = 'poly_event_volumes_v1';
+const VOLUME_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+type VolumeEntry = { poly: number; our: number; other: number; expires_at: number };
+const loadVolumeCache = (): Record<string, VolumeEntry> => {
+  try {
+    const raw = localStorage.getItem(VOLUME_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, VolumeEntry>;
+    const now = Date.now();
+    const fresh: Record<string, VolumeEntry> = {};
+    for (const k in parsed) {
+      const e = parsed[k];
+      if (e && typeof e.expires_at === 'number' && e.expires_at > now) fresh[k] = e;
+    }
+    return fresh;
+  } catch { return {}; }
+};
+const saveVolumeCache = (entries: Record<string, VolumeEntry>) => {
+  try {
+    const now = Date.now();
+    const kept: Record<string, VolumeEntry> = {};
+    for (const k in entries) {
+      const e = entries[k];
+      if (e && e.expires_at > now) kept[k] = e;
+    }
+    localStorage.setItem(VOLUME_CACHE_KEY, JSON.stringify(kept));
+  } catch {}
+};
 
 // 点击事件名称，查询父事件链接并新 tab 打开
 const openMarket = (conditionId: string) => {
@@ -404,9 +436,27 @@ export default function PolyActivity() {
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
   const [expandedDetail, setExpandedDetail] = useState<{ wallet: string; label: string; type: string; side: string; size: number; usdc_size: number; price: number; pnl?: number; ts: number }[]>([]);
   const [loadingEventDetail, setLoadingEventDetail] = useState(false);
-  const filteredEvents = role === 'customer'
+  const filteredEventsBase = role === 'customer'
     ? dailyEvents.filter((e) => e.title !== '做市奖励' && (selectedDate === '2026-04-11' || !(e.total_usdc > 0 && e.total_pnl / e.total_usdc < -0.1)))
     : dailyEvents;
+  // Per-event CLOB volume (Polymarket total vs our summed trading volume). Lazy-loaded via button.
+  const [eventVolumes, setEventVolumes] = useState<Record<string, VolumeEntry>>(() => loadVolumeCache());
+  const [loadingVolumes, setLoadingVolumes] = useState(false);
+  const [volumeProgress, setVolumeProgress] = useState<{ done: number; total: number } | null>(null);
+  const filteredEvents = useMemo(() => filteredEventsBase.map((ev) => {
+    const v = ev.condition_id ? eventVolumes[ev.condition_id.toLowerCase()] : undefined;
+    let ratio: number | null = null;
+    if (v) {
+      const denom = Math.max(v.poly, v.our);
+      ratio = denom > 0 ? v.our / denom : 0;
+    }
+    return {
+      ...ev,
+      poly_volume: v ? v.poly : null,
+      our_volume: v ? v.our : null,
+      our_ratio: ratio,
+    };
+  }), [filteredEventsBase, eventVolumes]);
   const eventSort = useSort(filteredEvents, 'total_pnl');
   const detailSort = useSort(expandedDetail, 'pnl');
 
@@ -416,10 +466,24 @@ export default function PolyActivity() {
   const [openPositions, setOpenPositions] = useState<OpenPosItem[]>([]);
   const [loadingOpenPos, setLoadingOpenPos] = useState(false);
   const [expandedPos, setExpandedPos] = useState<string | null>(null);
-  type PosDetailItem = { wallet: string; label: string; shares: number; cost: number; revenue: number; exposure: number; avg_price: number };
+  type PosDetailItem = { wallet: string; label: string; shares: number; cost: number; revenue: number; exposure: number; avg_price: number; first_buy_ts: number };
   const [posDetail, setPosDetail] = useState<PosDetailItem[]>([]);
   const [loadingPosDetail, setLoadingPosDetail] = useState(false);
-  const openPosSort = useSort(openPositions, 'first_buy_ts');
+  const openPositionsWithVolumes = useMemo(() => openPositions.map((p) => {
+    const v = p.condition_id ? eventVolumes[p.condition_id.toLowerCase()] : undefined;
+    let ratio: number | null = null;
+    if (v) {
+      const denom = Math.max(v.poly, v.our);
+      ratio = denom > 0 ? v.our / denom : 0;
+    }
+    return {
+      ...p,
+      poly_volume: v ? v.poly : null,
+      our_volume: v ? v.our : null,
+      our_ratio: ratio,
+    };
+  }), [openPositions, eventVolumes]);
+  const openPosSort = useSort(openPositionsWithVolumes, 'first_buy_ts');
   const posDetailSort = useSort(posDetail, 'exposure');
   const [openPosFetchedAt, setOpenPosFetchedAt] = useState(0); // timestamp ms
   const [openPosCacheTTL, setOpenPosCacheTTL] = useState(0); // seconds remaining
@@ -907,6 +971,65 @@ export default function PolyActivity() {
                       {showOpenPositions && openPosCacheTTL > 0 && (
                         <span style={{ fontSize: 'var(--pa-fs-xs)', color: 'var(--pa-text3)' }}>{openPosCacheTTL}s</span>
                       )}
+                      {(() => {
+                        const ids = showOpenPositions
+                          ? openPositions.map((p) => p.condition_id).filter(Boolean)
+                          : filteredEventsBase.map((ev) => ev.condition_id).filter(Boolean);
+                        if (ids.length === 0) return null;
+                        const BATCH_SIZE = 20;
+                        const missingIds = ids.filter((id) => !eventVolumes[id.toLowerCase()]);
+                        const isFillMode = missingIds.length > 0;
+                        const toFetch = isFillMode ? missingIds : ids;
+                        return (
+                          <button
+                            className="pa-chart-tab"
+                            style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }}
+                            disabled={loadingVolumes}
+                            title={isFillMode
+                              ? `只请求未缓存的 ${missingIds.length} 个（每批 ${BATCH_SIZE}，顺序请求，全部监控钱包）。缓存 3 天有效。`
+                              : `所有 ${ids.length} 个已缓存，点击强制重新拉取并覆盖缓存。`}
+                            onClick={async () => {
+                              const batches: string[][] = [];
+                              for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
+                                batches.push(toFetch.slice(i, i + BATCH_SIZE));
+                              }
+                              setLoadingVolumes(true);
+                              setVolumeProgress({ done: 0, total: batches.length });
+                              try {
+                                for (let bi = 0; bi < batches.length; bi++) {
+                                  try {
+                                    const res = await sharddbAPI.getEventVolumes(batches[bi]);
+                                    const expAt = Date.now() + VOLUME_CACHE_TTL_MS;
+                                    setEventVolumes((prev) => {
+                                      const next = { ...prev };
+                                      (res.records || []).forEach((r) => {
+                                        next[r.condition_id.toLowerCase()] = {
+                                          poly: r.poly_volume_clob,
+                                          our: r.our_volume,
+                                          other: r.other_volume,
+                                          expires_at: expAt,
+                                        };
+                                      });
+                                      saveVolumeCache(next);
+                                      return next;
+                                    });
+                                  } catch (err) {
+                                    console.error('event_volumes batch failed', bi, err);
+                                  }
+                                  setVolumeProgress({ done: bi + 1, total: batches.length });
+                                }
+                              } finally {
+                                setLoadingVolumes(false);
+                                setVolumeProgress(null);
+                              }
+                            }}
+                          >{loadingVolumes
+                            ? (volumeProgress ? `加载中 ${volumeProgress.done}/${volumeProgress.total}` : '加载中...')
+                            : (isFillMode
+                              ? (Object.keys(eventVolumes).length > 0 ? `补拉成交额 (${missingIds.length})` : '加载成交额')
+                              : '强制刷新')}</button>
+                        );
+                      })()}
                       <button className="pa-chart-tab" style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }} onClick={(e) => {
                         const text = showOpenPositions
                           ? '市场\t事件\t开仓时间\t持仓量\t成本\t敞口\t均价\t现价\t浮动盈亏\n' + openPositions.map((p) =>
@@ -942,6 +1065,12 @@ export default function PolyActivity() {
                               <SortTh label="均价" field="avg_price" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
                               <SortTh label="现价" field="cur_price" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
                               <SortTh label="浮动盈亏" field="unreal_pnl" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
+                              {Object.keys(eventVolumes).length > 0 && (
+                                <>
+                                  <SortTh label="PM 成交额" field="poly_volume" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
+                                  <SortTh label="我们占比" field="our_ratio" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
+                                </>
+                              )}
                             </tr>
                             <TableSummaryRow columns={[
                               {},
@@ -953,6 +1082,7 @@ export default function PolyActivity() {
                               {},
                               {},
                               { content: fmt(openPositions.reduce((s, p) => s + p.unreal_pnl, 0)), style: { textAlign: 'right', color: openPositions.reduce((s, p) => s + p.unreal_pnl, 0) >= 0 ? 'var(--pa-green)' : 'var(--pa-red)' } },
+                              ...(Object.keys(eventVolumes).length > 0 ? [{}, {}] : []),
                             ]} />
                           </thead>
                           <tbody>
@@ -977,9 +1107,15 @@ export default function PolyActivity() {
                                 <td style={{ textAlign: 'right', color: p.unreal_pnl >= 0 ? 'var(--pa-green)' : 'var(--pa-red)', fontWeight: 600 }}>
                                   {p.cur_price > 0 ? fmt(p.unreal_pnl) : '-'}
                                 </td>
+                                {Object.keys(eventVolumes).length > 0 && (
+                                  <>
+                                    <td style={{ textAlign: 'right' }}>{p.poly_volume != null ? fmtShort(p.poly_volume) : '-'}</td>
+                                    <td style={{ textAlign: 'right' }}>{p.our_ratio != null ? (p.our_ratio * 100).toFixed(1) + '%' : '-'}</td>
+                                  </>
+                                )}
                               </tr>
                               {expandedPos === p.condition_id && (
-                                <tr><td colSpan={9} style={{ padding: 0 }}>
+                                <tr><td colSpan={Object.keys(eventVolumes).length > 0 ? 11 : 9} style={{ padding: 0 }}>
                                   {loadingPosDetail ? (
                                     <div className="pa-loading" style={{ height: 60 }}><div className="pa-spinner" /></div>
                                   ) : (
@@ -987,6 +1123,9 @@ export default function PolyActivity() {
                                       <div className="pa-event-wallet" style={{ borderBottom: '1px solid var(--pa-border)', paddingBottom: 4, marginBottom: 4 }}>
                                         <span className="pa-ew-name pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => posDetailSort.toggle('label')}>
                                           钱包 {posDetailSort.sortKey === 'label' ? (posDetailSort.asc ? '\u25B2' : '\u25BC') : ''}
+                                        </span>
+                                        <span className="pa-ew-info pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => posDetailSort.toggle('first_buy_ts')}>
+                                          开仓时间 {posDetailSort.sortKey === 'first_buy_ts' ? (posDetailSort.asc ? '▲' : '▼') : ''}
                                         </span>
                                         <span className="pa-ew-info pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => posDetailSort.toggle('shares')}>
                                           持仓 {posDetailSort.sortKey === 'shares' ? (posDetailSort.asc ? '\u25B2' : '\u25BC') : ''}
@@ -1000,6 +1139,9 @@ export default function PolyActivity() {
                                           <span className="pa-ew-name">
                                             {r.label || addrShort(r.wallet)}
                                             <span className="pa-addr-copy" onClick={(e) => { e.stopPropagation(); copyAddr(r.wallet); }} title={r.wallet}>{addrShort(r.wallet)}</span>
+                                          </span>
+                                          <span className="pa-ew-info" style={{ fontSize: 'var(--pa-fs-xs)', color: 'var(--pa-text2)' }}>
+                                            {r.first_buy_ts > 0 ? new Date(r.first_buy_ts * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}
                                           </span>
                                           <span className="pa-ew-info">
                                             <span className="pa-ew-rec">{r.shares.toFixed(1)} 份 @{r.avg_price > 0 ? r.avg_price.toFixed(3) : '-'}</span>
@@ -1033,6 +1175,12 @@ export default function PolyActivity() {
                             <SortTh label="笔数" field="count" {...eventSort} onSort={eventSort.toggle} style={{ textAlign: 'right' }} />
                             <SortTh label="金额" field="total_usdc" {...eventSort} onSort={eventSort.toggle} style={{ textAlign: 'right' }} />
                             <SortTh label="盈亏" field="total_pnl" {...eventSort} onSort={eventSort.toggle} style={{ textAlign: 'right' }} />
+                            {Object.keys(eventVolumes).length > 0 && (
+                              <>
+                                <SortTh label="PM 成交额" field="poly_volume" {...eventSort} onSort={eventSort.toggle} style={{ textAlign: 'right' }} />
+                                <SortTh label="我们占比" field="our_ratio" {...eventSort} onSort={eventSort.toggle} style={{ textAlign: 'right' }} />
+                              </>
+                            )}
                           </tr>
                           <TableSummaryRow columns={[
                             {},
@@ -1040,6 +1188,7 @@ export default function PolyActivity() {
                             { content: filteredEvents.reduce((s, e) => s + e.count, 0), style: { textAlign: 'right' } },
                             { content: fmt(filteredEvents.reduce((s, e) => s + e.total_usdc, 0)), style: { textAlign: 'right' } },
                             { content: fmt(filteredEvents.reduce((s, e) => s + e.total_pnl, 0)), style: { textAlign: 'right', color: filteredEvents.reduce((s, e) => s + e.total_pnl, 0) >= 0 ? 'var(--pa-green)' : 'var(--pa-red)' } },
+                            ...(Object.keys(eventVolumes).length > 0 ? [{}, {}] : []),
                           ]} />
                         </thead>
                         <tbody>
@@ -1058,9 +1207,15 @@ export default function PolyActivity() {
                                 <td style={{ textAlign: 'right' }}>{ev.count}</td>
                                 <td style={{ textAlign: 'right' }}>{fmt(ev.total_usdc)}</td>
                                 <td style={{ textAlign: 'right', color: ev.total_pnl >= 0 ? 'var(--pa-green)' : 'var(--pa-red)', fontWeight: 600 }}>{fmt(ev.total_pnl)}</td>
+                                {Object.keys(eventVolumes).length > 0 && (
+                                  <>
+                                    <td style={{ textAlign: 'right' }}>{ev.poly_volume != null ? fmtShort(ev.poly_volume) : '-'}</td>
+                                    <td style={{ textAlign: 'right' }}>{ev.our_ratio != null ? (ev.our_ratio * 100).toFixed(1) + '%' : '-'}</td>
+                                  </>
+                                )}
                               </tr>
                               {expandedEvent === ev.title && (
-                                <tr><td colSpan={5} style={{ padding: 0 }}>
+                                <tr><td colSpan={Object.keys(eventVolumes).length > 0 ? 7 : 5} style={{ padding: 0 }}>
                                   {loadingEventDetail ? (
                                     <div className="pa-loading" style={{ height: 60 }}><div className="pa-spinner" /></div>
                                   ) : (

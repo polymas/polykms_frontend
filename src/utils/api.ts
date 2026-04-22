@@ -961,10 +961,17 @@ export const sharddbAPI = {
     return response.data;
   },
   getOpenPositionDetail: async (conditionId: string, params: { wallet?: string; group?: string; exclude_wallets?: string }): Promise<{
-    records: { wallet: string; label: string; shares: number; cost: number; revenue: number; exposure: number; avg_price: number }[];
+    records: { wallet: string; label: string; shares: number; cost: number; revenue: number; exposure: number; avg_price: number; first_buy_ts: number }[];
     total: number;
   }> => {
     const response = await api.get('/api/sharddb/open_position_detail', { params: { condition_id: conditionId, ...params } });
+    return response.data;
+  },
+  getEventVolumes: async (conditionIds: string[]): Promise<{
+    records: { condition_id: string; poly_volume_clob: number; poly_volume: number; our_volume: number; other_volume: number }[];
+    total: number;
+  }> => {
+    const response = await api.get('/api/sharddb/event_volumes', { params: { condition_ids: conditionIds.join(',') } });
     return response.data;
   },
 };
