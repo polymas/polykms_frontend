@@ -202,25 +202,6 @@ export interface StoreSecretResponse {
   message: string;
 }
 
-export interface StoreSecretsBatchRequest {
-  secrets: StoreSecretRequest[];
-}
-
-export interface StoreSecretBatchResult {
-  key_name: string;
-  success: boolean;
-  id?: number;
-  active?: boolean;
-  error?: string;
-}
-
-export interface StoreSecretsBatchResponse {
-  total: number;
-  success: number;
-  failed: number;
-  results: StoreSecretBatchResult[];
-}
-
 export interface ListSecretsResponse {
   count: number;
   secrets: Omit<Secret, 'value'>[];
@@ -372,64 +353,6 @@ export const secretsAPI = {
     // 直接发送数据（敏感字段应该已经在组件中加密）
     const response = await api.post<StoreSecretResponse>('/api/v1/secrets', data);
     return response.data;
-  },
-
-  /**
-   * 批量存储密钥（敏感字段需要在调用前已加密）
-   */
-  storeSecretsBatch: async (
-    secrets: StoreSecretRequest[]
-  ): Promise<{ success: StoreSecretResponse[]; failed: { secret: StoreSecretRequest; error: string }[] }> => {
-    if (secrets.length === 0) {
-      return { success: [], failed: [] };
-    }
-
-    try {
-      // 直接发送数据（敏感字段应该已经在组件中加密）
-      const response = await api.post<StoreSecretsBatchResponse>('/api/v1/secrets/batch', {
-        secrets,
-      });
-
-      // 转换响应格式以保持兼容性
-      const success: StoreSecretResponse[] = [];
-      const failed: { secret: StoreSecretRequest; error: string }[] = [];
-
-      response.data.results.forEach((result, index) => {
-        if (result.success) {
-          success.push({
-            id: result.id!,
-            key_name: result.key_name,
-            active: result.active ?? true,
-            message: '密钥存储成功',
-          });
-        } else {
-          failed.push({
-            secret: secrets[index],
-            error: result.error || '未知错误',
-          });
-        }
-      });
-
-      return { success, failed };
-    } catch (error: any) {
-      // 如果批量接口失败，回退到逐个上传
-      const success: StoreSecretResponse[] = [];
-      const failed: { secret: StoreSecretRequest; error: string }[] = [];
-
-      for (const secret of secrets) {
-        try {
-          const result = await secretsAPI.storeSecret(secret);
-          success.push(result);
-        } catch (err: any) {
-          failed.push({
-            secret,
-            error: err.response?.data?.error || err.message || '未知错误',
-          });
-        }
-      }
-
-      return { success, failed };
-    }
   },
 
   /**
