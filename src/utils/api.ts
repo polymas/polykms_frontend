@@ -328,6 +328,7 @@ export interface WorkerStatus {
   error_msg?: string;
   data?: string; // JSON字符串格式的业务数据（/status 接口返回）
   info_data?: string; // JSON字符串格式的静态信息（/info 接口返回）
+  tail_order_share?: number; // 尾盘下注份额（从 secret.extra_info 解析；未配置默认 100）
   checked_at: string;
   created_at: string;
   updated_at: string; // 更新时间，用于判断是否在线
@@ -385,9 +386,9 @@ export const workersAPI = {
    * 获取所有工作机的最新状态
    * @param hideOffline 如果为true，后端会过滤掉所有离线机器（包括error状态）
    */
-  getWorkerStatuses: async (hideOffline?: boolean): Promise<WorkerStatusListResponse> => {
-    const params = hideOffline ? { hide_offline: 'true' } : {};
-    const response = await api.get<WorkerStatusListResponse>('/api/v1/workers/status', { params });
+  getWorkerStatuses: async (): Promise<WorkerStatusListResponse> => {
+    // hideOffline 已废弃：后端总是返回 secrets 全集，前端通过 isWorkerOnline 时间口径筛选
+    const response = await api.get<WorkerStatusListResponse>('/api/v1/workers/status');
     return response.data;
   },
 

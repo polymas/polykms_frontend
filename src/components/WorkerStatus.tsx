@@ -1,12 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
-import { Button, Space, Card, Descriptions, Tag, Typography, Tooltip, Spin } from 'antd';
-import { ReloadOutlined, CopyOutlined, DownOutlined, RightOutlined, DownloadOutlined } from '@ant-design/icons';
+import { Button, Space, Tag, Tooltip, Spin } from 'antd';
+import { ReloadOutlined, CopyOutlined, DownloadOutlined } from '@ant-design/icons';
 import { workersAPI, WorkerStatus as WorkerStatusType } from '../utils/api';
 import { secureLog } from '../utils/security';
 import './WorkerStatus.css';
-
-const { Text } = Typography;
 
 /**
  * 代理地址在表格中的缩略展示（如 0x123456...654321）；复制等操作仍应使用原始完整字符串。
@@ -34,8 +31,15 @@ function CustomerWorkerStatus() {
 
   useEffect(() => {
     const load = () => {
-      workersAPI.getWorkerStatuses(true).then((res) => {
-        setStatuses(res.statuses || []);
+      workersAPI.getWorkerStatuses().then((res) => {
+        // customer 视角只看在线（updated_at / checked_at 60s 内）
+        const all = res.statuses || [];
+        const online = all.filter((s) => {
+          const t = s.updated_at || s.checked_at;
+          if (!t) return false;
+          return Date.now() - new Date(t).getTime() <= 60 * 1000;
+        });
+        setStatuses(online);
       }).catch(() => {}).finally(() => setLoading(false));
     };
     load();
@@ -114,7 +118,6 @@ function CustomerWorkerStatus() {
 export default function WorkerStatus() {
   if (getRole() === 'customer') return <CustomerWorkerStatus />;
 
-  const location = useLocation();
   const [statuses, setStatuses] = useState<WorkerStatusType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
@@ -135,35 +138,20 @@ export default function WorkerStatus() {
   // 自动刷新功能（可在页面上暂停/恢复）
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshInterval] = useState(10); // 秒
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set()); // 展开的行ID
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [searchKeyword, setSearchKeyword] = useState<string>(''); // 搜索关键词
   const [sortField, setSortField] = useState<string>('ip'); // 排序字段
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc'); // 排序顺序
-  const [hideOffline, setHideOffline] = useState<boolean>(false); // 隐藏离线机器，默认不隐藏
 
   // 使用 ref 保存最新状态，避免闭包问题
   const statusesRef = useRef<WorkerStatusType[]>([]);
-  const expandedRowsRef = useRef<Set<number>>(new Set());
 
   // 同步 ref 和 state
   useEffect(() => {
     statusesRef.current = statuses;
   }, [statuses]);
 
-  useEffect(() => {
-    expandedRowsRef.current = expandedRows;
-  }, [expandedRows]);
-
-  // 从数据分析页跳转过来时，展开指定 IP 的行
-  const highlightIp = (location.state as { highlightIp?: string } | null)?.highlightIp;
-  useEffect(() => {
-    if (!highlightIp || statuses.length === 0) return;
-    const s = statuses.find((x) => x.ip === highlightIp);
-    if (s) {
-      setExpandedRows((prev) => new Set([...prev, s.id]));
-    }
-  }, [highlightIp, statuses]);
+  // 注：原"从数据分析页跳转后展开指定行"逻辑已废弃（展开功能整体移除）
 
   // 可选的字段列表
   const availableFields = [
@@ -207,20 +195,8 @@ export default function WorkerStatus() {
       setLoading(true);
       setError('');
 
-      // 从 ref 获取最新状态值，避免闭包问题
-      const currentStatuses = statusesRef.current;
-      const currentExpandedRows = expandedRowsRef.current;
-
-      // 保存当前展开的行ID（基于IP），避免刷新时收回
-      const currentExpandedIPs = new Set<string>();
-      currentStatuses.forEach(status => {
-        if (currentExpandedRows.has(status.id)) {
-          currentExpandedIPs.add(status.ip);
-        }
-      });
-
-      // 传递 hideOffline 参数给后端，让后端过滤掉所有离线机器（包括error状态）
-      const response = await workersAPI.getWorkerStatuses(hideOffline);
+      // 后端总是返回 secrets 全集 + worker_status 合并；前端按时间口径判断在线
+      const response = await workersAPI.getWorkerStatuses();
       secureLog.log('加载工作机状态响应:', response);
       // 调试：检查是否有 info_data 字段
       if (response && response.statuses && response.statuses.length > 0) {
@@ -259,15 +235,6 @@ export default function WorkerStatus() {
         // 转换为数组
         const uniqueStatuses = Array.from(statusMap.values());
         setStatuses(uniqueStatuses);
-
-        // 恢复展开状态（基于IP匹配）
-        const newExpandedRows = new Set<number>();
-        uniqueStatuses.forEach(status => {
-          if (currentExpandedIPs.has(status.ip)) {
-            newExpandedRows.add(status.id);
-          }
-        });
-        setExpandedRows(newExpandedRows);
 
         secureLog.log('去重前数量:', response.statuses.length, '去重后数量:', uniqueStatuses.length);
 
@@ -313,11 +280,6 @@ export default function WorkerStatus() {
     loadStatuses();
   }, []);
 
-  // 当 hideOffline 状态变化时，重新加载数据
-  useEffect(() => {
-    loadStatuses();
-  }, [hideOffline]);
-
   // 自动刷新：只刷新动态status数据
   useEffect(() => {
     if (!autoRefresh) return;
@@ -327,7 +289,7 @@ export default function WorkerStatus() {
     }, refreshInterval * 1000);
 
     return () => clearInterval(interval);
-  }, [autoRefresh, refreshInterval, hideOffline]);
+  }, [autoRefresh, refreshInterval]);
 
   // 根据检查时间判断工作机是否在线（一分钟内算在线）
   const isWorkerOnline = (workerStatus: WorkerStatusType): boolean => {
@@ -624,158 +586,9 @@ export default function WorkerStatus() {
     return '-';
   };
 
-  // 切换行展开状态
-  const toggleRowExpansion = (id: number) => {
-    const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id);
-    } else {
-      newExpanded.add(id);
-    }
-    setExpandedRows(newExpanded);
-  };
-
-  // 渲染业务数据
-  const renderBusinessData = (data: Record<string, any>) => {
-    // 关键字段匹配规则（持仓数、挂单数、余额）
-    const isKeyField = (key: string): boolean => {
-      const lowerKey = key.toLowerCase();
-      // 优先精确匹配 usdc_balance（不区分大小写，支持 WALLET.USDC_BALANCE）
-      if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' ||
-        key === 'WALLET.USDC_BALANCE') {
-        return true;
-      }
-      // 中文匹配持仓和挂单
-      if (key.includes('持仓') || key.includes('挂单')) {
-        return true;
-      }
-      // 英文匹配持仓和挂单
-      if (/position.*count/i.test(key) || /positions/i.test(key) ||
-        /order.*count/i.test(key) || /orders/i.test(key)) {
-        return true;
-      }
-      // 匹配包含 usdc 和 balance 的字段（排除 pol_balance）
-      if ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
-        !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key)) {
-        return true;
-      }
-      return false;
-    };
-
-    // 重要字段匹配规则（系统状态相关）
-    const isImportantField = (key: string): boolean => {
-      const importantPatterns = [
-        /cpu/i, /memory/i, /disk/i, /network/i,
-        /uptime/i, /version/i, /status/i, /运行时间/i,
-        /版本/i, /状态/i, /最后更新/i, /last.*update/i
-      ];
-      return importantPatterns.some(pattern => pattern.test(key));
-    };
-
-    // 分离关键字段、重要字段和其他字段
-    const keyItems: Array<[string, any]> = [];
-    const importantItems: Array<[string, any]> = [];
-    const otherItems: Array<[string, any]> = [];
-
-    Object.entries(data).forEach(([key, value]) => {
-      if (isKeyField(key)) {
-        keyItems.push([key, value]);
-      } else if (isImportantField(key)) {
-        importantItems.push([key, value]);
-      } else {
-        otherItems.push([key, value]);
-      }
-    });
-
-    // 格式化值
-    const formatValue = (value: any, key?: string): string => {
-      if (value === null || value === undefined) return '-';
-      if (typeof value === 'object') {
-        return JSON.stringify(value, null, 2);
-      }
-      // 如果是余额相关字段，格式化为两位小数（只匹配 usdc_balance，排除 pol_balance）
-      if (key) {
-        const lowerKey = key.toLowerCase();
-        if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' ||
-          key === 'WALLET.USDC_BALANCE' ||
-          ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
-            !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key))) {
-          const numValue = Number(value);
-          if (!isNaN(numValue)) {
-            return numValue.toFixed(2);
-          }
-        }
-      }
-      return String(value);
-    };
-
-    return (
-      <div className="business-data-container">
-        {/* 关键业务指标 */}
-        {keyItems.length > 0 && (
-          <Card
-            title="关键业务指标"
-            size="small"
-            style={{ marginBottom: 16 }}
-            headStyle={{ background: '#e6f7ff', borderBottom: '2px solid #1890ff' }}
-          >
-            <Descriptions column={3} size="small" bordered>
-              {keyItems.map(([key, value]) => (
-                <Descriptions.Item
-                  key={key}
-                  label={<Text strong style={{ color: '#1890ff' }}>{key}</Text>}
-                  span={1}
-                >
-                  <Text strong style={{ color: '#1890ff', fontSize: '16px' }}>
-                    {formatValue(value, key)}
-                  </Text>
-                </Descriptions.Item>
-              ))}
-            </Descriptions>
-          </Card>
-        )}
-
-        {/* 系统状态 */}
-        {importantItems.length > 0 && (
-          <Card
-            title="系统状态"
-            size="small"
-            style={{ marginBottom: 16 }}
-          >
-            <Descriptions column={3} size="small" bordered>
-              {importantItems.map(([key, value]) => (
-                <Descriptions.Item key={key} label={key} span={1}>
-                  {formatValue(value, key)}
-                </Descriptions.Item>
-              ))}
-            </Descriptions>
-          </Card>
-        )}
-
-        {/* 其他信息 */}
-        {otherItems.length > 0 && (
-          <Card
-            title="其他信息"
-            size="small"
-          >
-            <Descriptions column={3} size="small" bordered>
-              {otherItems.map(([key, value]) => (
-                <Descriptions.Item key={key} label={key} span={1}>
-                  <Text code style={{ fontSize: '12px' }}>
-                    {formatValue(value, key)}
-                  </Text>
-                </Descriptions.Item>
-              ))}
-            </Descriptions>
-          </Card>
-        )}
-      </div>
-    );
-  };
 
   // 过滤和排序状态列表
-  // 注意：离线机器的过滤现在由后端完成（如果 hideOffline 为 true）
-  // 前端这里只做搜索和排序，不再过滤离线机器
+  // 后端总返回 secrets 全集；前端做搜索 / 排序 / 在线时间口径筛选
   const filteredAndSortedStatuses = React.useMemo(() => {
     let filtered = statuses;
 
@@ -1159,13 +972,6 @@ export default function WorkerStatus() {
                   </button>
                   <button
                     className="toggle-button"
-                    onClick={() => setHideOffline((prev) => !prev)}
-                    title={hideOffline ? '显示所有工作机' : '只显示在线工作机'}
-                  >
-                    {hideOffline ? '只看在线: 开' : '只看在线: 关'}
-                  </button>
-                  <button
-                    className="toggle-button"
                     onClick={() => setAutoRefresh((prev) => !prev)}
                     title={autoRefresh ? '暂停自动刷新' : '恢复自动刷新'}
                   >
@@ -1458,9 +1264,6 @@ export default function WorkerStatus() {
                         }
                       }
 
-                      const businessData = Object.keys(mergedData).length > 0 ? mergedData : null;
-                      const isExpanded = expandedRows.has(status.id);
-                      const colSpan = selectedFields.length;
                       const nestedProxyWallet = getProxyWalletAddress(status.info_data, status.data);
                       // 使用IP作为key，确保唯一性
                       return (
@@ -1468,19 +1271,7 @@ export default function WorkerStatus() {
                           <tr>
                             {selectedFields.includes('ip') && (
                               <td>
-                                <Space size="small" align="center">
-                                  {businessData && (
-                                    <Tooltip title={isExpanded ? '收起详情' : '查看详情'}>
-                                      <Button
-                                        type="text"
-                                        size="small"
-                                        icon={isExpanded ? <DownOutlined /> : <RightOutlined />}
-                                        onClick={() => toggleRowExpansion(status.id)}
-                                      />
-                                    </Tooltip>
-                                  )}
-                                  <span>{status.ip}</span>
-                                </Space>
+                                <span>{status.ip}</span>
                               </td>
                             )}
                             {selectedFields.includes('key_name') && (
@@ -1624,7 +1415,7 @@ export default function WorkerStatus() {
                             )}
                             {selectedFields.includes('tail_order_share') && (
                               <td className="key-metric-cell">
-                                {getKeyMetricValue(mergedData, 'tail_order_share')}
+                                {status.tail_order_share ?? '-'}
                               </td>
                             )}
                             {selectedFields.includes('balance') && (
@@ -1644,32 +1435,6 @@ export default function WorkerStatus() {
                               </td>
                             )}
                           </tr>
-                          {isExpanded && (
-                            <tr className="detail-row">
-                              <td colSpan={colSpan} className="detail-cell">
-                                <div className="detail-content">
-                                  {businessData ? (
-                                    <Card
-                                      title={
-                                        <Space>
-                                          <Text strong>工作机业务信息</Text>
-                                          <Tag color="blue">{status.key_name}</Tag>
-                                          <Tag color="default">{status.ip}</Tag>
-                                        </Space>
-                                      }
-                                      size="small"
-                                    >
-                                      {renderBusinessData(businessData)}
-                                    </Card>
-                                  ) : (
-                                    <div className="positions-empty">
-                                      <p>暂无业务信息</p>
-                                    </div>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          )}
                         </React.Fragment>
                       );
                     })}
@@ -1682,21 +1447,6 @@ export default function WorkerStatus() {
 
         {/* 侧边栏 */}
         <div className="sidebar">
-          {/* 过滤 */}
-          <div className="sidebar-section">
-            <h3 className="sidebar-title">过滤</h3>
-            <div className="filter-control-sidebar">
-              <label className="filter-checkbox">
-                <input
-                  type="checkbox"
-                  checked={hideOffline}
-                  onChange={(e) => setHideOffline(e.target.checked)}
-                />
-                隐藏离线机器
-              </label>
-            </div>
-          </div>
-
           {/* 字段选择 */}
           <div className="sidebar-section">
             <h3 className="sidebar-title">显示字段</h3>
