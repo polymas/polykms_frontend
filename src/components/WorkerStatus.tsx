@@ -143,7 +143,7 @@ export default function WorkerStatus() {
   const [sortField, setSortField] = useState<string>('ip'); // 排序字段
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc'); // 排序顺序
   const [currentPage, setCurrentPage] = useState<number>(1); // 当前页
-  const pageSize = 10; // 每页 10 条
+  const [pageSize, setPageSize] = useState<number>(10); // 每页条数；默认 10，可选 10/20/50/100/500
 
   // 使用 ref 保存最新状态，避免闭包问题
   const statusesRef = useRef<WorkerStatusType[]>([]);
@@ -755,10 +755,10 @@ export default function WorkerStatus() {
     return sorted;
   }, [statuses, searchKeyword, sortField, sortOrder]);
 
-  // 搜索 / 排序变化时回到第 1 页
+  // 搜索 / 排序 / 每页条数变化时回到第 1 页
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchKeyword, sortField, sortOrder]);
+  }, [searchKeyword, sortField, sortOrder, pageSize]);
 
   // 总页数；总数变化（数据增减）后若当前页超出，自动回到最后一页
   const totalPages = Math.max(1, Math.ceil(filteredAndSortedStatuses.length / pageSize));
@@ -1468,6 +1468,8 @@ export default function WorkerStatus() {
                   padding: '10px 4px',
                   fontSize: 13,
                   color: '#666',
+                  gap: 12,
+                  flexWrap: 'wrap',
                 }}>
                   <span>
                     共 {filteredAndSortedStatuses.length} 条 ·
@@ -1475,7 +1477,17 @@ export default function WorkerStatus() {
                     显示 {(currentPage - 1) * pageSize + 1}–
                     {Math.min(currentPage * pageSize, filteredAndSortedStatuses.length)}
                   </span>
-                  <Space size="small">
+                  <Space size="small" wrap>
+                    <span>每页</span>
+                    <select
+                      value={pageSize}
+                      onChange={(e) => setPageSize(Number(e.target.value))}
+                      style={{ padding: '2px 6px', fontSize: 13 }}
+                    >
+                      {[10, 20, 50, 100, 500].map((n) => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
                     <Button size="small" disabled={currentPage <= 1} onClick={() => setCurrentPage(1)}>首页</Button>
                     <Button size="small" disabled={currentPage <= 1} onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}>上一页</Button>
                     <Button size="small" disabled={currentPage >= totalPages} onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}>下一页</Button>
