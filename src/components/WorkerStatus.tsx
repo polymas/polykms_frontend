@@ -142,6 +142,8 @@ export default function WorkerStatus() {
   const [searchKeyword, setSearchKeyword] = useState<string>(''); // 搜索关键词
   const [sortField, setSortField] = useState<string>('ip'); // 排序字段
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc'); // 排序顺序
+  const [currentPage, setCurrentPage] = useState<number>(1); // 当前页
+  const pageSize = 10; // 每页 10 条
 
   // 使用 ref 保存最新状态，避免闭包问题
   const statusesRef = useRef<WorkerStatusType[]>([]);
@@ -753,6 +755,23 @@ export default function WorkerStatus() {
     return sorted;
   }, [statuses, searchKeyword, sortField, sortOrder]);
 
+  // 搜索 / 排序变化时回到第 1 页
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchKeyword, sortField, sortOrder]);
+
+  // 总页数；总数变化（数据增减）后若当前页超出，自动回到最后一页
+  const totalPages = Math.max(1, Math.ceil(filteredAndSortedStatuses.length / pageSize));
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [totalPages, currentPage]);
+
+  // 当前页要展示的切片
+  const pagedStatuses = React.useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredAndSortedStatuses.slice(start, start + pageSize);
+  }, [filteredAndSortedStatuses, currentPage]);
+
   // 统计信息（基于过滤后的数据，合并静态info和动态status）
   const stats = React.useMemo(() => {
     let totalAssets = 0;
@@ -1246,7 +1265,7 @@ export default function WorkerStatus() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredAndSortedStatuses.map((status) => {
+                    {pagedStatuses.map((status) => {
                       // 合并静态info数据和动态status数据
                       const staticInfo = parseInfoData(status.info_data) || {};
                       const dynamicData = status.data ? parseBusinessData(status.data) : null;
@@ -1440,6 +1459,29 @@ export default function WorkerStatus() {
                     })}
                   </tbody>
                 </table>
+              )}
+              {filteredAndSortedStatuses.length > 0 && (
+                <div className="pagination-bar" style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 4px',
+                  fontSize: 13,
+                  color: '#666',
+                }}>
+                  <span>
+                    共 {filteredAndSortedStatuses.length} 条 ·
+                    第 {currentPage} / {totalPages} 页 ·
+                    显示 {(currentPage - 1) * pageSize + 1}–
+                    {Math.min(currentPage * pageSize, filteredAndSortedStatuses.length)}
+                  </span>
+                  <Space size="small">
+                    <Button size="small" disabled={currentPage <= 1} onClick={() => setCurrentPage(1)}>首页</Button>
+                    <Button size="small" disabled={currentPage <= 1} onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}>上一页</Button>
+                    <Button size="small" disabled={currentPage >= totalPages} onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}>下一页</Button>
+                    <Button size="small" disabled={currentPage >= totalPages} onClick={() => setCurrentPage(totalPages)}>末页</Button>
+                  </Space>
+                </div>
               )}
             </div>
           )}
