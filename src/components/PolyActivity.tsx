@@ -1197,7 +1197,10 @@ export default function PolyActivity() {
                               <tr style={{ cursor: 'pointer' }} onClick={() => setExpandedEvent(expandedEvent === ev.title ? null : ev.title)}>
                                 <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 'var(--pa-fs-sm)' }}>
                                   {ev.condition_id ? (
-                                    <span className="pa-market-link" onClick={(e) => { e.stopPropagation(); openMarket(ev.condition_id); }} title={ev.condition_id}>{ev.condition_id.slice(0, 10)}...</span>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                      <span className="pa-addr-copy" onClick={(e) => { e.stopPropagation(); copyAddr(ev.condition_id); }} title={`点击复制 ${ev.condition_id}`}>{ev.condition_id.slice(0, 10)}...</span>
+                                      <span className="pa-market-link" onClick={(e) => { e.stopPropagation(); openMarket(ev.condition_id); }} title="在 Polymarket 打开" style={{ padding: '0 4px' }}>↗</span>
+                                    </span>
                                   ) : '-'}
                                 </td>
                                 <td style={{ fontSize: 'var(--pa-fs-sm)', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ev.title}>
