@@ -898,6 +898,14 @@ export const sharddbAPI = {
     const response = await api.get('/api/sharddb/event_volumes', { params: { condition_ids: conditionIds.join(',') } });
     return response.data;
   },
+  /** 导出对账表 CSV（仅 admin）。params 二选一：wallets 逗号分隔 / group / 都不传=全网 */
+  exportReconcile: async (params: { wallets?: string; group?: string }): Promise<{ blob: Blob; filename: string }> => {
+    const response = await api.get('/api/sharddb/reconcile/export', { params, responseType: 'blob' });
+    const cd = response.headers['content-disposition'] || '';
+    const m = cd.match(/filename="?([^"]+)"?/);
+    const filename = m ? m[1] : `reconcile_${Date.now()}.csv`;
+    return { blob: response.data as Blob, filename };
+  },
 };
 
 export interface SharddbEquityCurvePoint {

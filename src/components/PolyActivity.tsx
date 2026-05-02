@@ -684,22 +684,11 @@ export default function PolyActivity() {
                 btn.textContent = '导出中…';
                 btn.setAttribute('disabled', 'true');
                 try {
-                  const params = new URLSearchParams();
-                  if (selectedWallet) {
-                    params.set('wallets', selectedWallet);
-                  } else if (selectedGroup && selectedGroup !== '_total') {
-                    params.set('group', selectedGroup);
-                  }
+                  const params: { wallets?: string; group?: string } = {};
+                  if (selectedWallet) params.wallets = selectedWallet;
+                  else if (selectedGroup && selectedGroup !== '_total') params.group = selectedGroup;
                   // _total / 空 → 全网
-                  const token = localStorage.getItem('token') || '';
-                  const resp = await fetch(`/api/sharddb/reconcile/export?${params.toString()}`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                  });
-                  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                  const blob = await resp.blob();
-                  const cd = resp.headers.get('Content-Disposition') || '';
-                  const fnMatch = cd.match(/filename="?([^"]+)"?/);
-                  const filename = fnMatch ? fnMatch[1] : `reconcile_${Date.now()}.csv`;
+                  const { blob, filename } = await sharddbAPI.exportReconcile(params);
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
                   a.href = url;
