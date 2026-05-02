@@ -900,7 +900,12 @@ export const sharddbAPI = {
   },
   /** 导出对账表 CSV（仅 admin）。params 二选一：wallets 逗号分隔 / group / 都不传=全网 */
   exportReconcile: async (params: { wallets?: string; group?: string }): Promise<{ blob: Blob; filename: string }> => {
-    const response = await api.get('/api/sharddb/reconcile/export', { params, responseType: 'blob' });
+    // 全网 1500+ 钱包需要 3+ 分钟，超时设 10min；浏览器/Nginx 也得放行（默认 120s）
+    const response = await api.get('/api/sharddb/reconcile/export', {
+      params,
+      responseType: 'blob',
+      timeout: 600000,
+    });
     const cd = response.headers['content-disposition'] || '';
     const m = cd.match(/filename="?([^"]+)"?/);
     const filename = m ? m[1] : `reconcile_${Date.now()}.csv`;
