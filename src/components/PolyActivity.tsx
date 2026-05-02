@@ -673,6 +673,52 @@ export default function PolyActivity() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 'var(--pa-fs-base)', color: 'var(--pa-text2)' }}>{groups.length} 分组</span>
           <button className="pa-chart-tab" style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }} onClick={refreshData}>刷新</button>
+          {role === 'admin' && (
+            <button
+              className="pa-chart-tab"
+              style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }}
+              title="导出当前选中范围（钱包 / 分组 / Total）的对账表 CSV，仅 admin 可用"
+              onClick={async (e) => {
+                const btn = e.currentTarget;
+                const orig = btn.textContent;
+                btn.textContent = '导出中…';
+                btn.setAttribute('disabled', 'true');
+                try {
+                  const params = new URLSearchParams();
+                  if (selectedWallet) {
+                    params.set('wallets', selectedWallet);
+                  } else if (selectedGroup && selectedGroup !== '_total') {
+                    params.set('group', selectedGroup);
+                  }
+                  // _total / 空 → 全网
+                  const token = localStorage.getItem('token') || '';
+                  const resp = await fetch(`/api/sharddb/reconcile/export?${params.toString()}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                  const blob = await resp.blob();
+                  const cd = resp.headers.get('Content-Disposition') || '';
+                  const fnMatch = cd.match(/filename="?([^"]+)"?/);
+                  const filename = fnMatch ? fnMatch[1] : `reconcile_${Date.now()}.csv`;
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  URL.revokeObjectURL(url);
+                } catch (err) {
+                  alert(`导出失败: ${err}`);
+                } finally {
+                  btn.textContent = orig;
+                  btn.removeAttribute('disabled');
+                }
+              }}
+            >
+              导出对账表
+            </button>
+          )}
           {syncStatus && (
             <span style={{ fontSize: 'var(--pa-fs-xs)', color: 'var(--pa-text3)', fontVariantNumeric: 'tabular-nums' }}>
               同步: {syncStatus.oldest_sync_at
