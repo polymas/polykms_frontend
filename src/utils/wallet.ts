@@ -132,14 +132,18 @@ async function getPolygonProvider(): Promise<ethers.JsonRpcProvider> {
  */
 const POLYGON_EXCHANGE_ADDRESS = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
 const SAFE_PROXY_FACTORY_ADDRESS = '0xaacFeEa03eb1561C4e67d661e40682Bd20E3541b';
+// Polymarket DepositWalletFactory（CWIA 新版默认代理）
+const DEPOSIT_WALLET_FACTORY_ADDRESS = '0x00000000000Fb5C9ADea0298D729A0CB3823Cc07';
+const DEPOSIT_WALLET_DEFAULT_IMPL = '0x58cA52EbE0dAdFDf531CDe7062E76746de4Db1eB';
 
 /**
  * 签名类型枚举（与Go SDK保持一致）
  */
 export enum SignatureType {
   EOA = 0,      // EOA钱包
-  Proxy = 1,    // Proxy钱包
-  Safe = 2,     // Safe/Gnosis钱包
+  Proxy = 1,    // Proxy钱包（老版邮箱钱包）
+  Safe = 2,     // Safe/Gnosis钱包（老版私钥钱包）
+  CWIA = 3,     // Polymarket DepositWallet（新版默认代理）
 }
 
 /**
@@ -239,16 +243,86 @@ async function getSafeProxyAddress(walletAddress: string): Promise<string> {
 }
 
 /**
+ * 获取CWIA（Polymarket DepositWallet）代理地址
+ * 调用 DepositWalletFactory.predictWalletAddress(impl, bytes32(owner))
+ * impl 优先动态读 factory.implementation()，失败回退默认 impl。
+ * id = bytes32(uint256(uint160(owner))) —— Polymarket 后端约定。
+ */
+async function getCWIAProxyAddress(walletAddress: string): Promise<string> {
+  if (!isValidAddress(walletAddress)) {
+    throw new Error(`无效的基础钱包地址: ${walletAddress}`);
+  }
+
+  const provider = await getPolygonProvider();
+
+  const factoryABI = [
+    {
+      inputs: [],
+      name: 'implementation',
+      outputs: [{ internalType: 'address', name: '', type: 'address' }],
+      stateMutability: 'view',
+      type: 'function',
+    },
+    {
+      inputs: [
+        { internalType: 'address', name: '_implementation', type: 'address' },
+        { internalType: 'bytes32', name: '_id', type: 'bytes32' },
+      ],
+      name: 'predictWalletAddress',
+      outputs: [{ internalType: 'address', name: '', type: 'address' }],
+      stateMutability: 'view',
+      type: 'function',
+    },
+  ];
+
+  const contract = new ethers.Contract(DEPOSIT_WALLET_FACTORY_ADDRESS, factoryABI, provider);
+
+  // 1) 动态获取 impl，失败回退默认值
+  let impl = DEPOSIT_WALLET_DEFAULT_IMPL;
+  try {
+    const fetched = (await Promise.race([
+      contract.implementation(),
+      new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error('获取 impl 超时')), 10000)
+      ),
+    ])) as string;
+    if (fetched && fetched !== ethers.ZeroAddress) {
+      impl = fetched;
+    }
+  } catch (e) {
+    secureLog.warn('读取 DepositWalletFactory.implementation 失败，使用默认 impl:', e);
+  }
+
+  // 2) id = 左 12 字节 0 + 右 20 字节 EOA
+  const idArg = ethers.zeroPadValue(walletAddress.toLowerCase(), 32);
+
+  const proxyAddress = (await Promise.race([
+    contract.predictWalletAddress(impl, idArg),
+    new Promise<string>((_, reject) =>
+      setTimeout(() => reject(new Error('获取代理地址超时')), 10000)
+    ),
+  ])) as string;
+
+  if (!proxyAddress || proxyAddress === ethers.ZeroAddress) {
+    throw new Error('获取CWIA代理地址失败：返回地址为空');
+  }
+  if (!ethers.isAddress(proxyAddress)) {
+    throw new Error('获取CWIA代理地址失败：返回地址格式无效');
+  }
+  return proxyAddress;
+}
+
+/**
  * 根据签名类型获取Polymarket代理地址
  * 参考Go SDK的实现逻辑
- * 
+ *
  * @param walletAddress 基础钱包地址
- * @param signatureType 签名类型：0=EOA, 1=Proxy, 2=Safe
+ * @param signatureType 签名类型：0=EOA, 1=PolyProxy, 2=Safe, 3=CWIA(新版默认)
  * @returns Polymarket代理地址
  */
 export async function getPolymarketProxyAddress(
   walletAddress: string,
-  signatureType: number = SignatureType.Proxy
+  signatureType: number = SignatureType.CWIA
 ): Promise<string> {
   try {
     // 首先验证基础地址格式（所有类型都需要验证）
@@ -264,13 +338,15 @@ export async function getPolymarketProxyAddress(
 
       case SignatureType.Proxy:
         // Proxy类型：调用PolygonExchange合约的getPolyProxyWalletAddress
-        // 地址已在getPolyProxyWalletAddress中验证，这里直接调用
         return await getPolyProxyWalletAddress(walletAddress);
 
       case SignatureType.Safe:
         // Safe类型：调用SafeProxyFactory合约的computeProxyAddress
-        // 地址已在getSafeProxyAddress中验证，这里直接调用
         return await getSafeProxyAddress(walletAddress);
+
+      case SignatureType.CWIA:
+        // CWIA类型：调用DepositWalletFactory.predictWalletAddress
+        return await getCWIAProxyAddress(walletAddress);
 
       default:
         // 未知类型：默认返回基础地址（已验证）

@@ -85,10 +85,11 @@ export default function SecretManagement() {
   const getWalletTypeFromSignatureType = (signatureType: number): string => {
     const typeMap: { [key: number]: string } = {
       0: 'EOA',      // 裸钱包
-      1: 'proxy',    // 邮箱钱包
-      2: 'safe',     // 私钥钱包
+      1: 'proxy',    // 邮箱钱包（老版）
+      2: 'safe',     // 私钥钱包（老版）
+      3: 'cwia',     // Polymarket DepositWallet（新版默认）
     };
-    return typeMap[signatureType] || 'key';
+    return typeMap[signatureType] || 'cwia';
   };
 
   // 处理签名类型选择变化
@@ -243,8 +244,8 @@ export default function SecretManagement() {
         ip: '', // IP地址不传，后端根据请求IP自动填写
         proxy_address: proxyAddress || '', // 使用计算出的代理地址
         base_address: walletAddress || '', // 使用计算出的钱包地址作为基础地址
-        wallet_type: values.wallet_type ? sanitizeInput(values.wallet_type) : getWalletTypeFromSignatureType(values.signature_type || 2),
-        signature_type: values.signature_type !== undefined ? values.signature_type : 2,
+        wallet_type: values.wallet_type ? sanitizeInput(values.wallet_type) : getWalletTypeFromSignatureType(values.signature_type || 3),
+        signature_type: values.signature_type !== undefined ? values.signature_type : 3,
       };
 
       // ExtraInfo：子项 tail_order_share，默认 100，范围 0-1000
@@ -533,8 +534,8 @@ export default function SecretManagement() {
             layout="vertical"
             onFinish={handleSubmitSecret}
             initialValues={{
-              signature_type: 2, // 默认使用Safe类型（私钥钱包）
-              wallet_type: 'safe',
+              signature_type: 3, // 默认使用CWIA类型（Polymarket 新版默认代理）
+              wallet_type: 'cwia',
               tail_order_share: 100, // ExtraInfo 子项，默认 100
             }}
           >
@@ -601,9 +602,10 @@ export default function SecretManagement() {
                   label="签名类型"
                   name="signature_type"
                   rules={[{ required: true, message: '请选择签名类型' }]}
-                  tooltip="EOA: 裸钱包，代理地址等于基础地址；Proxy: 邮箱钱包；Safe: 私钥钱包"
+                  tooltip="CWIA: Polymarket 新版默认代理（推荐）；EOA: 裸钱包，代理地址等于基础地址；Proxy/Safe: 老版邮箱/私钥钱包，仅存量账户使用"
                 >
                   <Radio.Group onChange={handleSignatureTypeChange} buttonStyle="solid">
+                    <Radio.Button value={3}>CWIA (新版默认)</Radio.Button>
                     <Radio.Button value={0}>EOA (裸钱包)</Radio.Button>
                     <Radio.Button value={1}>Proxy (邮箱钱包)</Radio.Button>
                     <Radio.Button value={2}>Safe (私钥钱包)</Radio.Button>
