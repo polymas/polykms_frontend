@@ -64,13 +64,16 @@ export function getKeyMetricValue(
     }
     if (fieldName === 'balance') {
       const lowerKey = key.toLowerCase();
-      if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' ||
+      if (lowerKey === 'pusd_balance' || lowerKey === 'wallet.pusd_balance' ||
+        key === 'WALLET.PUSD_BALANCE' ||
+        lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' ||
         key === 'WALLET.USDC_BALANCE') {
         const numValue = Number(value);
         if (!isNaN(numValue)) return numValue.toFixed(2);
         return String(value);
       }
-      if ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
+      if ((/pusd.*balance/i.test(key) || /balance.*pusd/i.test(key) ||
+        /usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
         !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key)) {
         const numValue = Number(value);
         if (!isNaN(numValue)) return numValue.toFixed(2);
@@ -150,14 +153,16 @@ export function getKeyMetricValue(
     }
     for (const [key, value] of Object.entries(businessData)) {
       const lowerKey = key.toLowerCase();
-      if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' || key === 'WALLET.USDC_BALANCE') {
+      if (lowerKey === 'pusd_balance' || lowerKey === 'wallet.pusd_balance' || key === 'WALLET.PUSD_BALANCE' ||
+        lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' || key === 'WALLET.USDC_BALANCE') {
         const numValue = Number(value);
         if (!isNaN(numValue)) {
           balance = numValue;
           break;
         }
       }
-      if ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
+      if ((/pusd.*balance/i.test(key) || /balance.*pusd/i.test(key) ||
+        /usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
         !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key)) {
         const numValue = Number(value);
         if (!isNaN(numValue)) {

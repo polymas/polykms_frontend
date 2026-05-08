@@ -170,7 +170,7 @@ export default function WorkerStatus() {
     { key: 'position_count', label: '持仓数' },
     { key: 'order_count', label: '挂单数' },
     { key: 'tail_order_share', label: '尾盘下注份额' },
-    { key: 'balance', label: 'USDC余额' },
+    { key: 'balance', label: 'pUSD余额' },
     { key: 'total_assets', label: '资产总额' },
     { key: 'version_number', label: '程序版本号' },
   ];
@@ -427,18 +427,21 @@ export default function WorkerStatus() {
         }
       }
       if (fieldName === 'balance') {
-        // 优先精确匹配 usdc_balance 字段（不区分大小写）
+        // 优先精确匹配 pusd_balance / usdc_balance 字段（不区分大小写）
         const lowerKey = key.toLowerCase();
-        if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' ||
-          key === 'WALLET.USDC_BALANCE' || key === 'WALLET.USDC_BALANCE') {
+        if (lowerKey === 'pusd_balance' || lowerKey === 'wallet.pusd_balance' ||
+          key === 'WALLET.PUSD_BALANCE' ||
+          lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' ||
+          key === 'WALLET.USDC_BALANCE') {
           const numValue = Number(value);
           if (!isNaN(numValue)) {
             return numValue.toFixed(2);
           }
           return String(value);
         }
-        // 其次匹配包含 usdc 和 balance 的字段（排除 pol_balance）
-        if ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
+        // 其次匹配包含 pusd/usdc 和 balance 的字段（排除 pol_balance）
+        if ((/pusd.*balance/i.test(key) || /balance.*pusd/i.test(key) ||
+          /usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
           !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key)) {
           const numValue = Number(value);
           if (!isNaN(numValue)) {
@@ -508,7 +511,7 @@ export default function WorkerStatus() {
         }
       }
     }
-    // 计算资产总额 = 仓位价值 + USDC余额
+    // 计算资产总额 = 仓位价值 + pUSD/USDC 余额
     if (fieldName === 'total_assets') {
       let positionValue = 0;
       let balance = 0;
@@ -543,10 +546,12 @@ export default function WorkerStatus() {
         }
       }
 
-      // 获取USDC余额
+      // 获取 pUSD/USDC 余额
       for (const [key, value] of Object.entries(businessData)) {
         const lowerKey = key.toLowerCase();
-        if (lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' ||
+        if (lowerKey === 'pusd_balance' || lowerKey === 'wallet.pusd_balance' ||
+          key === 'WALLET.PUSD_BALANCE' ||
+          lowerKey === 'usdc_balance' || lowerKey === 'wallet.usdc_balance' ||
           key === 'WALLET.USDC_BALANCE') {
           const numValue = Number(value);
           if (!isNaN(numValue)) {
@@ -554,8 +559,9 @@ export default function WorkerStatus() {
             break;
           }
         }
-        // 匹配包含 usdc 和 balance 的字段（排除 pol_balance）
-        if ((/usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
+        // 匹配包含 pusd/usdc 和 balance 的字段（排除 pol_balance）
+        if ((/pusd.*balance/i.test(key) || /balance.*pusd/i.test(key) ||
+          /usdc.*balance/i.test(key) || /balance.*usdc/i.test(key)) &&
           !/pol.*balance/i.test(key) && !/balance.*pol/i.test(key)) {
           const numValue = Number(value);
           if (!isNaN(numValue)) {
@@ -787,7 +793,7 @@ export default function WorkerStatus() {
       };
 
       if (Object.keys(mergedData).length > 0) {
-        // 计算资产总额（仓位价值 + USDC余额）
+        // 计算资产总额（仓位价值 + pUSD/USDC 余额）
         const assets = getKeyMetricValue(mergedData, 'total_assets');
         if (assets !== '-') {
           const numValue = Number(assets);
@@ -1226,7 +1232,7 @@ export default function WorkerStatus() {
                             }
                           }}
                         >
-                          USDC余额
+                          pUSD余额
                           {sortField === 'balance' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
                         </th>
                       )}
