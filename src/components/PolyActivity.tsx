@@ -488,6 +488,20 @@ export default function PolyActivity() {
   const [openPosFetchedAt, setOpenPosFetchedAt] = useState(0); // timestamp ms
   const [openPosCacheTTL, setOpenPosCacheTTL] = useState(0); // seconds remaining
 
+  // Batch claimable check state: condition_id -> result
+  type ClaimableResult = {
+    resolved: boolean;
+    claimable: boolean;
+    total_claim_value?: number;
+    total_claimable_shares?: number;
+    message?: string;
+  };
+  const [claimableMap, setClaimableMap] = useState<Record<string, ClaimableResult>>({});
+  const [loadingClaimable, setLoadingClaimable] = useState(false);
+  const [claimableProgress, setClaimableProgress] = useState<{ done: number; total: number } | null>(null);
+  // Reset on wallet/group switch
+  useEffect(() => { setClaimableMap({}); }, [selectedWallet, selectedGroup]);
+
   // Cache countdown timer
   useEffect(() => {
     if (openPosFetchedAt === 0) return;
@@ -1065,13 +1079,68 @@ export default function PolyActivity() {
                               : '强制刷新')}</button>
                         );
                       })()}
+                      {showOpenPositions && (() => {
+                        const ids = openPositions.map((p) => p.condition_id).filter(Boolean);
+                        if (ids.length === 0) return null;
+                        const missing = ids.filter((id) => !claimableMap[id]);
+                        const isFill = missing.length > 0;
+                        const toFetch = isFill ? missing : ids;
+                        const params = buildWalletParams();
+                        return (
+                          <button
+                            className="pa-chart-tab"
+                            style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }}
+                            disabled={loadingClaimable || !params}
+                            title={isFill
+                              ? `检查未查询的 ${missing.length} 个持仓是否可 claim（每个并发 5 个，含链上 RPC）。`
+                              : `所有 ${ids.length} 个已查询，点击重新检查。`}
+                            onClick={async () => {
+                              if (!params) return;
+                              setLoadingClaimable(true);
+                              setClaimableProgress({ done: 0, total: toFetch.length });
+                              const CONC = 5;
+                              let idx = 0;
+                              let done = 0;
+                              const worker = async () => {
+                                while (idx < toFetch.length) {
+                                  const cur = toFetch[idx++];
+                                  try {
+                                    const res = await sharddbAPI.checkClaimable(cur, params);
+                                    setClaimableMap((m) => ({ ...m, [cur]: {
+                                      resolved: res.resolved,
+                                      claimable: res.claimable,
+                                      total_claim_value: res.total_claim_value,
+                                      total_claimable_shares: res.total_claimable_shares,
+                                      message: res.message,
+                                    } }));
+                                  } catch (err) {
+                                    console.error('check_claimable failed', cur, err);
+                                  }
+                                  done++;
+                                  setClaimableProgress({ done, total: toFetch.length });
+                                }
+                              };
+                              try {
+                                await Promise.all(Array.from({ length: Math.min(CONC, toFetch.length) }, worker));
+                              } finally {
+                                setLoadingClaimable(false);
+                                setClaimableProgress(null);
+                              }
+                            }}
+                          >{loadingClaimable
+                            ? (claimableProgress ? `检查中 ${claimableProgress.done}/${claimableProgress.total}` : '检查中...')
+                            : (isFill
+                              ? (Object.keys(claimableMap).length > 0 ? `补拉Claim (${missing.length})` : '检查可Claim')
+                              : '重新检查')}</button>
+                        );
+                      })()}
                       <button className="pa-chart-tab" style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }} onClick={(e) => {
                         const text = showOpenPositions
                           ? '市场\t事件\t开仓时间\t持仓量\t成本\t敞口\t均价\t现价\t浮动盈亏\n' + openPositions.map((p) =>
                               `${p.condition_id.slice(0,10)}\t${p.title}\t${p.first_buy_ts > 0 ? new Date(p.first_buy_ts * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}\t${p.shares.toFixed(1)}\t${p.cost.toFixed(2)}\t${p.exposure.toFixed(2)}\t${p.avg_price > 0 ? p.avg_price.toFixed(3) : '-'}\t${p.cur_price > 0 ? p.cur_price.toFixed(3) : '-'}\t${p.cur_price > 0 ? p.unreal_pnl.toFixed(2) : '-'}`
                             ).join('\n')
-                          : '市场\t事件\t笔数\t金额\t盈亏\n' + filteredEvents.map((ev) =>
-                              `${ev.condition_id.slice(0,10)}\t${ev.title}\t${ev.count}\t${ev.total_usdc.toFixed(2)}\t${ev.total_pnl.toFixed(2)}`
+                          : '市场\t时间\t事件\t笔数\t金额\t盈亏\n' + filteredEvents.map((ev) =>
+                              `${ev.condition_id.slice(0,10)}\t${selectedDate || ''}\t${ev.title}\t${ev.count}\t${ev.total_usdc.toFixed(2)}\t${ev.total_pnl.toFixed(2)}`
                             ).join('\n');
                         navigator.clipboard.writeText(text).then(() => {
                           const btn = e.currentTarget;
@@ -1100,6 +1169,7 @@ export default function PolyActivity() {
                               <SortTh label="均价" field="avg_price" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
                               <SortTh label="现价" field="cur_price" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
                               <SortTh label="浮动盈亏" field="unreal_pnl" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
+                              <th style={{ textAlign: 'center' }}>可Claim</th>
                               {Object.keys(eventVolumes).length > 0 && (
                                 <>
                                   <SortTh label="PM 成交额" field="poly_volume" {...openPosSort} onSort={openPosSort.toggle} style={{ textAlign: 'right' }} />
@@ -1117,6 +1187,7 @@ export default function PolyActivity() {
                               {},
                               {},
                               { content: fmt(openPositions.reduce((s, p) => s + p.unreal_pnl, 0)), style: { textAlign: 'right', color: openPositions.reduce((s, p) => s + p.unreal_pnl, 0) >= 0 ? 'var(--pa-green)' : 'var(--pa-red)' } },
+                              {},
                               ...(Object.keys(eventVolumes).length > 0 ? [{}, {}] : []),
                             ]} />
                           </thead>
@@ -1125,7 +1196,12 @@ export default function PolyActivity() {
                               <React.Fragment key={i}>
                               <tr style={{ cursor: 'pointer' }} onClick={() => setExpandedPos(expandedPos === p.condition_id ? null : p.condition_id)}>
                                 <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 'var(--pa-fs-sm)' }}>
-                                  <span className="pa-market-link" onClick={(e) => { e.stopPropagation(); openMarket(p.condition_id); }} title={p.condition_id}>{p.condition_id.slice(0, 10)}...</span>
+                                  {p.condition_id ? (
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                      <span className="pa-addr-copy" onClick={(e) => { e.stopPropagation(); copyAddr(p.condition_id); }} title={`点击复制 ${p.condition_id}`}>{p.condition_id.slice(0, 10)}...</span>
+                                      <span className="pa-market-link" onClick={(e) => { e.stopPropagation(); openMarket(p.condition_id); }} title="在 Polymarket 打开" style={{ padding: '0 4px' }}>↗</span>
+                                    </span>
+                                  ) : '-'}
                                 </td>
                                 <td style={{ fontSize: 'var(--pa-fs-sm)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.title}>
                                   <span style={{ marginRight: 4, fontSize: 'var(--pa-fs-xs)', color: 'var(--pa-text2)' }}>{expandedPos === p.condition_id ? '\u25BC' : '\u25B6'}</span>
@@ -1142,6 +1218,19 @@ export default function PolyActivity() {
                                 <td style={{ textAlign: 'right', color: p.unreal_pnl >= 0 ? 'var(--pa-green)' : 'var(--pa-red)', fontWeight: 600 }}>
                                   {p.cur_price > 0 ? fmt(p.unreal_pnl) : '-'}
                                 </td>
+                                <td style={{ textAlign: 'center', fontSize: 'var(--pa-fs-xs)' }}>
+                                  {(() => {
+                                    const r = claimableMap[p.condition_id];
+                                    if (!r) return <span style={{ color: 'var(--pa-text3)' }}>-</span>;
+                                    if (!r.resolved) return <span style={{ color: 'var(--pa-text3)' }} title={r.message || ''}>未结算</span>;
+                                    if (!r.claimable) return <span style={{ color: 'var(--pa-text3)' }}>已赎回</span>;
+                                    return (
+                                      <span style={{ color: 'var(--pa-green)', fontWeight: 600 }} title={`可赎回 ${r.total_claimable_shares?.toFixed(1)} 份 ≈ $${fmt(r.total_claim_value || 0)}`}>
+                                        ✓ ${fmt(r.total_claim_value || 0)}
+                                      </span>
+                                    );
+                                  })()}
+                                </td>
                                 {Object.keys(eventVolumes).length > 0 && (
                                   <>
                                     <td style={{ textAlign: 'right' }}>{p.poly_volume != null ? fmtShort(p.poly_volume) : '-'}</td>
@@ -1150,7 +1239,7 @@ export default function PolyActivity() {
                                 )}
                               </tr>
                               {expandedPos === p.condition_id && (
-                                <tr><td colSpan={Object.keys(eventVolumes).length > 0 ? 11 : 9} style={{ padding: 0 }}>
+                                <tr><td colSpan={Object.keys(eventVolumes).length > 0 ? 12 : 10} style={{ padding: 0 }}>
                                   {loadingPosDetail ? (
                                     <div className="pa-loading" style={{ height: 60 }}><div className="pa-spinner" /></div>
                                   ) : (
@@ -1262,6 +1351,9 @@ export default function PolyActivity() {
                                         <span className="pa-ew-name pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => detailSort.toggle('label')}>
                                           钱包 {detailSort.sortKey === 'label' ? (detailSort.asc ? '\u25B2' : '\u25BC') : ''}
                                         </span>
+                                        <span className="pa-ew-info pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => detailSort.toggle('ts')}>
+                                          平仓时间 {detailSort.sortKey === 'ts' ? (detailSort.asc ? '\u25B2' : '\u25BC') : ''}
+                                        </span>
                                         <span className="pa-ew-info pa-th-sort" style={{ color: 'var(--pa-text3)', fontSize: 'var(--pa-fs-sm)' }} onClick={() => detailSort.toggle('usdc_size')}>
                                           操作 {detailSort.sortKey === 'usdc_size' ? (detailSort.asc ? '\u25B2' : '\u25BC') : ''}
                                         </span>
@@ -1276,6 +1368,9 @@ export default function PolyActivity() {
                                             <span className="pa-ew-name">
                                               {r.label || addrShort(r.wallet)}
                                               <span className="pa-addr-copy" onClick={(e) => { e.stopPropagation(); copyAddr(r.wallet); }} title={r.wallet}>{addrShort(r.wallet)}</span>
+                                            </span>
+                                            <span className="pa-ew-info" style={{ fontSize: 'var(--pa-fs-xs)', color: 'var(--pa-text2)' }}>
+                                              {r.ts > 0 ? new Date(r.ts * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}
                                             </span>
                                             <span className="pa-ew-info">
                                               <span className="pa-ew-rec">{action} {fmt(r.usdc_size)} @{r.price > 0 ? r.price.toFixed(3) : '-'}</span>

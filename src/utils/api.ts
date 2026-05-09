@@ -891,6 +891,22 @@ export const sharddbAPI = {
     const response = await api.get('/api/sharddb/open_position_detail', { params: { condition_id: conditionId, ...params } });
     return response.data;
   },
+  checkClaimable: async (conditionId: string, params: { wallet?: string; group?: string; exclude_wallets?: string }): Promise<{
+    condition_id: string;
+    resolved: boolean;
+    claimable: boolean;
+    end_date_ts?: number;
+    yes_price?: number;
+    no_price?: number;
+    total_claim_value?: number;
+    total_claimable_shares?: number;
+    message?: string;
+    wallets?: { wallet: string; label: string; token_id: string; shares: number; on_chain_balance: number; payout_per_share: number; claim_value: number; claimable: boolean }[];
+    checked_at?: number;
+  }> => {
+    const response = await api.get('/api/sharddb/check_claimable', { params: { condition_id: conditionId, ...params } });
+    return response.data;
+  },
   getEventVolumes: async (conditionIds: string[]): Promise<{
     records: { condition_id: string; poly_volume_clob: number; poly_volume: number; our_volume: number; other_volume: number }[];
     total: number;
