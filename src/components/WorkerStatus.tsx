@@ -165,7 +165,7 @@ export default function WorkerStatus() {
     { key: 'response_time', label: '响应时间(ms)' },
     { key: 'status_code', label: 'HTTP状态码' },
     { key: 'error_msg', label: '错误信息' },
-    { key: 'checked_at', label: '检查时间' },
+    { key: 'checked_at', label: '最后在线时间' },
     { key: 'created_at', label: '创建时间' },
     { key: 'position_count', label: '持仓数' },
     { key: 'order_count', label: '挂单数' },
@@ -1168,7 +1168,7 @@ export default function WorkerStatus() {
                             }
                           }}
                         >
-                          检查时间
+                          最后在线时间
                           {sortField === 'checked_at' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
                         </th>
                       )}
