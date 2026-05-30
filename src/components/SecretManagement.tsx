@@ -230,13 +230,6 @@ export default function SecretManagement() {
       }
       const clientKey = parseJWT(token);
 
-      // 验证API密钥字段（三个都是必填的）
-      if (!values.api_key || !values.api_secret || !values.api_passphrase) {
-        message.error('API密钥 (API Key)、API密钥 (API Secret) 和 API密码短语(api_passphrase) 都是必填项');
-        setSubmitting(false);
-        return;
-      }
-
       // 构建上传数据（清理输入，IP地址不传，由后端自动填写）
       const secretToUpload: StoreSecretRequest = {
         key_name: sanitizeInput(values.key_name),
@@ -252,20 +245,9 @@ export default function SecretManagement() {
       const tailOrderShare = Math.round(Number(values.tail_order_share ?? 100));
       secretToUpload.extra_info = JSON.stringify({ tail_order_share: tailOrderShare });
 
-      // 只加密需要后端加密存储的字段：private_key 和 api_secret
+      // 只加密需要后端加密存储的字段：private_key
       if (values.private_key) {
         secretToUpload.private_key = await encryptSecret(values.private_key, clientKey);
-      }
-      if (values.api_secret) {
-        secretToUpload.api_secret = await encryptSecret(values.api_secret, clientKey);
-      }
-
-      // api_key 和 api_passphrase 后端明文存储，前端直接发送明文
-      if (values.api_key) {
-        secretToUpload.api_key = values.api_key;
-      }
-      if (values.api_passphrase) {
-        secretToUpload.api_passphrase = values.api_passphrase;
       }
 
       await secretsAPI.storeSecret(secretToUpload);
@@ -340,24 +322,6 @@ export default function SecretManagement() {
         tail_order_share: Math.round(Number(values.tail_order_share)),
         reason: values.reason ? sanitizeInput(values.reason) : undefined,
       };
-
-      // 如果填了三元组字段，则一起更新
-      if (values.api_key) {
-        updateData.api_key = values.api_key;
-      }
-      if (values.api_secret) {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          message.error('未找到登录token');
-          setEditSubmitting(false);
-          return;
-        }
-        const clientKey = parseJWT(token);
-        updateData.api_secret = await encryptSecret(values.api_secret, clientKey);
-      }
-      if (values.api_passphrase) {
-        updateData.api_passphrase = values.api_passphrase;
-      }
 
       await secretsAPI.updateSecretMeta(editingSecret.id, updateData);
       message.success('密钥信息更新成功');
@@ -651,43 +615,8 @@ export default function SecretManagement() {
                 </Form.Item>
               </Col>
 
-              {/* 右栏 - API密钥相关字段 */}
+              {/* 右栏 - 其他配置字段 */}
               <Col xs={24} lg={12}>
-                <Form.Item
-                  label="API密钥 (API Key)"
-                  name="api_key"
-                  rules={[{ required: true, message: '请输入API密钥 (API Key)' }]}
-                  tooltip="明文存储"
-                >
-                  <Input.Password
-                    placeholder="api_key"
-                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
-                    style={{ fontFamily: 'monospace' }}
-                  />
-                </Form.Item>
-                <Form.Item
-                  label="API密钥 (API Secret)"
-                  name="api_secret"
-                  rules={[{ required: true, message: '请输入API密钥 (API Secret)' }]}
-                  tooltip="将自动加密存储"
-                >
-                  <Input.Password
-                    placeholder="api_secret"
-                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
-                    style={{ fontFamily: 'monospace' }}
-                  />
-                </Form.Item>
-                <Form.Item
-                  label="API密码短语(api_passphrase)"
-                  name="api_passphrase"
-                  rules={[{ required: true, message: '请输入API密码短语(api_passphrase)' }]}
-                  tooltip="明文存储"
-                >
-                  <Input.Password
-                    placeholder="api_passphrase"
-                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
-                  />
-                </Form.Item>
                 <Form.Item
                   label="ExtraInfo - 尾盘下注份额"
                   name="tail_order_share"
@@ -806,28 +735,6 @@ export default function SecretManagement() {
                   ]}
                 >
                   <InputNumber min={0} max={1000} step={1} precision={0} style={{ width: '100%' }} />
-                </Form.Item>
-                <Divider>API 三元组（留空则不更新）</Divider>
-                <Form.Item label="API Key" name="api_key">
-                  <Input.Password
-                    placeholder="留空则不更新"
-                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
-                    style={{ fontFamily: 'monospace' }}
-                  />
-                </Form.Item>
-                <Form.Item label="API Secret" name="api_secret">
-                  <Input.Password
-                    placeholder="留空则不更新（将自动加密存储）"
-                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
-                    style={{ fontFamily: 'monospace' }}
-                  />
-                </Form.Item>
-                <Form.Item label="API Passphrase" name="api_passphrase">
-                  <Input.Password
-                    placeholder="留空则不更新"
-                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
-                    style={{ fontFamily: 'monospace' }}
-                  />
                 </Form.Item>
                 <Form.Item label="变更原因（可选）" name="reason">
                   <Input.TextArea rows={3} maxLength={500} placeholder="用于审计日志，建议填写本次修改原因" />

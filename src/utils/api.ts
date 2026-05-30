@@ -170,9 +170,6 @@ export interface Secret {
   proxy_address?: string; // 代理地址
   base_address?: string; // 基础地址
   private_key?: string; // 私钥（加密后）
-  api_key?: string; // API密钥（明文，后端明文存储）
-  api_secret?: string; // API密钥（加密后）
-  api_passphrase?: string; // API密码短语（明文，后端明文存储）
   wallet_type?: string; // 钱包类型
   signature_type?: number; // 签名类型
   extra_info?: string; // 额外信息（JSON字符串）
@@ -187,9 +184,6 @@ export interface StoreSecretRequest {
   proxy_address?: string; // 代理地址
   base_address?: string; // 基础地址
   private_key?: string; // 私钥（需要加密，后端会再次加密存储）
-  api_key?: string; // API密钥（需要加密传输，但后端明文存储）
-  api_secret?: string; // API密钥（需要加密，后端会再次加密存储）
-  api_passphrase?: string; // API密码短语（需要加密传输，但后端明文存储）
   wallet_type?: string; // 钱包类型
   signature_type?: number; // 签名类型
   extra_info?: string; // 额外信息（JSON字符串）
@@ -211,9 +205,6 @@ export interface UpdateSecretMetaRequest {
   key_name: string;
   tail_order_share: number;
   reason?: string;
-  api_key?: string;
-  api_secret?: string;
-  api_passphrase?: string;
 }
 
 export interface UpdateSecretMetaResponse {
