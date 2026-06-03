@@ -835,6 +835,16 @@ export const sharddbAPI = {
     const response = await api.post<{ message: string }>(`/api/sharddb/sync?wallet=${encodeURIComponent(wallet)}`);
     return response.data;
   },
+  // 单钱包全量重建（仅单钱包，不支持分组）：清 silent-redeem 缓存 + 重跑 L1→L2→L3，
+  // 同步返回（可能跑链上 RPC，给较长超时）
+  rebuildWallet: async (wallet: string): Promise<{ message: string; wallet: string }> => {
+    const response = await api.post<{ message: string; wallet: string }>(
+      `/api/sharddb/rebuild?wallet=${encodeURIComponent(wallet)}`,
+      undefined,
+      { timeout: 120000 }
+    );
+    return response.data;
+  },
   getEquityCurve: async (wallet: string): Promise<SharddbEquityCurveResponse> => {
     const response = await api.get<SharddbEquityCurveResponse>('/api/sharddb/equity_curve', { params: { wallet } });
     return response.data;

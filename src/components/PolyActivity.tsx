@@ -722,6 +722,34 @@ export default function PolyActivity() {
               导出对账表
             </button>
           )}
+          {role === 'admin' && selectedWallet && (
+            <button
+              className="pa-chart-tab"
+              style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }}
+              title="重建当前选中钱包的全部链上数据（清 silent-redeem 缓存 + 重跑 L1→L2→L3），用于修复脏的待平持仓等数据。仅支持单钱包，不支持分组。"
+              onClick={async (e) => {
+                const w = selectedWallet;
+                if (!w) return;
+                if (!window.confirm(`确认重建钱包 ${w.slice(0, 10)}… 的全部数据？\n将清掉 silent-redeem 缓存并重跑 L1→L2→L3，可能耗时数十秒。`)) return;
+                const btn = e.currentTarget;
+                const orig = btn.textContent;
+                btn.textContent = '重建中…';
+                btn.setAttribute('disabled', 'true');
+                try {
+                  await sharddbAPI.rebuildWallet(w);
+                  refreshData();
+                  alert('重建完成，数据已刷新');
+                } catch (err) {
+                  alert(`重建失败: ${err}`);
+                } finally {
+                  btn.textContent = orig;
+                  btn.removeAttribute('disabled');
+                }
+              }}
+            >
+              重建钱包数据
+            </button>
+          )}
           {syncStatus && (
             <span style={{ fontSize: 'var(--pa-fs-xs)', color: 'var(--pa-text3)', fontVariantNumeric: 'tabular-nums' }}>
               同步: {syncStatus.oldest_sync_at
