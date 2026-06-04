@@ -726,19 +726,26 @@ export default function PolyActivity() {
             <button
               className="pa-chart-tab"
               style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }}
-              title="重建当前选中钱包的全部链上数据（清 silent-redeem 缓存 + 重跑 L1→L2→L3），用于修复脏的待平持仓等数据。仅支持单钱包，不支持分组。"
+              title="重建当前选中钱包的链上数据，用于修复脏的待平持仓等数据。仅支持单钱包，不支持分组。点击后可选【彻底重建】(清空该钱包 L1 从头全量重拉，修复混入的其它钱包脏数据) 或【普通重建】(仅刷新缓存/衍生数据)。"
               onClick={async (e) => {
                 const w = selectedWallet;
                 if (!w) return;
-                if (!window.confirm(`确认重建钱包 ${w.slice(0, 10)}… 的全部数据？\n将清掉 silent-redeem 缓存并重跑 L1→L2→L3，可能耗时数十秒。`)) return;
+                const hard = window.confirm(
+                  `重建钱包 ${w.slice(0, 10)}… 的数据，请选择模式：\n\n` +
+                  `【确定】= 彻底重建：清空该钱包 l1_activity 后从头全量重拉，\n` +
+                  `         用于修复混入的其它钱包脏持仓（较慢，数十秒）。\n\n` +
+                  `【取消】= 普通重建：仅清 silent-redeem 缓存并重算（较快，\n` +
+                  `         洗不掉 L1 历史脏行）。\n\n` +
+                  `若不想重建，请关闭本弹窗后不再操作。`
+                );
                 const btn = e.currentTarget;
                 const orig = btn.textContent;
-                btn.textContent = '重建中…';
+                btn.textContent = hard ? '彻底重建中…' : '重建中…';
                 btn.setAttribute('disabled', 'true');
                 try {
-                  await sharddbAPI.rebuildWallet(w);
+                  const res = await sharddbAPI.rebuildWallet(w, hard);
                   refreshData();
-                  alert('重建完成，数据已刷新');
+                  alert((res.hard ? '彻底重建' : '普通重建') + '完成，数据已刷新');
                 } catch (err) {
                   alert(`重建失败: ${err}`);
                 } finally {

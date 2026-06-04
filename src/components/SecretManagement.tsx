@@ -241,8 +241,8 @@ export default function SecretManagement() {
         signature_type: values.signature_type !== undefined ? values.signature_type : 3,
       };
 
-      // ExtraInfo：子项 tail_order_share，默认 100，范围 0-1000
-      const tailOrderShare = Math.round(Number(values.tail_order_share ?? 100));
+      // ExtraInfo：子项 tail_order_share，默认 5，范围 0-1000
+      const tailOrderShare = Math.round(Number(values.tail_order_share ?? 5));
       secretToUpload.extra_info = JSON.stringify({ tail_order_share: tailOrderShare });
 
       // 只加密需要后端加密存储的字段：private_key
@@ -500,7 +500,7 @@ export default function SecretManagement() {
             initialValues={{
               signature_type: 3, // 默认使用CWIA类型（Polymarket 新版默认代理）
               wallet_type: 'cwia',
-              tail_order_share: 100, // ExtraInfo 子项，默认 100
+              tail_order_share: 5, // ExtraInfo 子项，默认 5
             }}
           >
             <Row gutter={24}>
@@ -629,14 +629,14 @@ export default function SecretManagement() {
                       message: '尾盘下注份额需为 0-1000 的整数',
                     },
                   ]}
-                  tooltip="尾盘下注份额，0-1000 的整数，默认 100"
+                  tooltip="尾盘下注份额，0-1000 的整数，默认 5"
                 >
                   <InputNumber
                     min={0}
                     max={1000}
                     step={1}
                     precision={0}
-                    placeholder="100"
+                    placeholder="5"
                     style={{ width: '100%' }}
                   />
                 </Form.Item>

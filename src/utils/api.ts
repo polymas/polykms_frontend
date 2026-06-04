@@ -835,13 +835,16 @@ export const sharddbAPI = {
     const response = await api.post<{ message: string }>(`/api/sharddb/sync?wallet=${encodeURIComponent(wallet)}`);
     return response.data;
   },
-  // 单钱包全量重建（仅单钱包，不支持分组）：清 silent-redeem 缓存 + 重跑 L1→L2→L3，
-  // 同步返回（可能跑链上 RPC，给较长超时）
-  rebuildWallet: async (wallet: string): Promise<{ message: string; wallet: string }> => {
-    const response = await api.post<{ message: string; wallet: string }>(
-      `/api/sharddb/rebuild?wallet=${encodeURIComponent(wallet)}`,
+  // 单钱包重建（仅单钱包，不支持分组）。同步返回（可能跑链上 RPC，给较长超时）。
+  // hard=false 软重建：清 silent-redeem 缓存 + 重跑 L1→L2→L3（L1 增量，洗不掉历史脏行）。
+  // hard=true  硬重建：先清空该钱包 l1_activity/l2_pnl + 游标，再从头全量重拉，
+  //            用于修复“别的钱包数据被串号写进本钱包名下”的 L1 脏数据。
+  rebuildWallet: async (wallet: string, hard = false): Promise<{ message: string; wallet: string; hard: boolean }> => {
+    const q = `wallet=${encodeURIComponent(wallet)}${hard ? '&hard=1' : ''}`;
+    const response = await api.post<{ message: string; wallet: string; hard: boolean }>(
+      `/api/sharddb/rebuild?${q}`,
       undefined,
-      { timeout: 120000 }
+      { timeout: 180000 }
     );
     return response.data;
   },
