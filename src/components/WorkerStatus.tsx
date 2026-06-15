@@ -143,7 +143,7 @@ export default function WorkerStatus() {
   const [sortField, setSortField] = useState<string>('ip'); // 排序字段
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc'); // 排序顺序
   const [currentPage, setCurrentPage] = useState<number>(1); // 当前页
-  const [pageSize, setPageSize] = useState<number>(10); // 每页条数；默认 10，可选 10/20/50/100/500
+  const [pageSize, setPageSize] = useState<number>(10); // 每页条数；默认 10，可选 10/20/50/100/500/1000/5000/10000
 
   // 使用 ref 保存最新状态，避免闭包问题
   const statusesRef = useRef<WorkerStatusType[]>([]);
@@ -1490,7 +1490,7 @@ export default function WorkerStatus() {
                       onChange={(e) => setPageSize(Number(e.target.value))}
                       style={{ padding: '2px 6px', fontSize: 13 }}
                     >
-                      {[10, 20, 50, 100, 500].map((n) => (
+                      {[10, 20, 50, 100, 500, 1000, 5000, 10000].map((n) => (
                         <option key={n} value={n}>{n}</option>
                       ))}
                     </select>
