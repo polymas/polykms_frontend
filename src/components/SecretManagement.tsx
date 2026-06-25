@@ -549,6 +549,18 @@ export default function SecretManagement() {
                     </Space>
                   }
                   name="private_key"
+                  required
+                  rules={[
+                    { required: true, message: '请输入私钥' },
+                    {
+                      validator: (_, value) => {
+                        if (!value || isValidPrivateKey(value)) {
+                          return Promise.resolve();
+                        }
+                        return Promise.reject(new Error('私钥格式无效'));
+                      },
+                    },
+                  ]}
                   tooltip="将自动加密存储，输入后会自动计算基础地址和Polymarket代理地址"
                 >
                   <Input.Password
