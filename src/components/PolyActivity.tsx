@@ -317,6 +317,9 @@ export default function PolyActivity() {
   const [syncStatus, setSyncStatus] = useState<{ wallet_count: number; oldest_sync_at: string; newest_sync_at: string } | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [loadingData, setLoadingData] = useState(false);
+  // Increment after wallet/group metadata is refreshed so the currently
+  // selected detail is fetched from the same backend snapshot.
+  const [dataRevision, setDataRevision] = useState(0);
   const [chartMode, setChartMode] = useState<'pnl' | 'volume'>('volume');
   const [calMode, setCalMode] = useState<'pnl' | 'volume'>('pnl');
   const [equityCurve, setEquityCurve] = useState<SharddbEquityCurveResponse | null>(null);
@@ -338,9 +341,17 @@ export default function PolyActivity() {
   // Load groups + wallet metadata
   useEffect(() => { refreshData(); }, []);
 
-  // Sync status polling (every 60s) + clock (every 1s)
+  // Sync status polling (every 60s) + clock (every 1s). When the backend
+  // advances, refresh all three views together: groups, wallet list, detail.
+  const lastSyncSignatureRef = React.useRef<string | null>(null);
   useEffect(() => {
-    const fetchSync = () => sharddbAPI.getSyncStatus().then(setSyncStatus).catch(() => {});
+    const fetchSync = () => sharddbAPI.getSyncStatus().then((next) => {
+      const signature = `${next.wallet_count}:${next.oldest_sync_at}:${next.newest_sync_at}`;
+      const previous = lastSyncSignatureRef.current;
+      lastSyncSignatureRef.current = signature;
+      setSyncStatus(next);
+      if (previous !== null && previous !== signature) refreshData();
+    }).catch(() => {});
     fetchSync();
     const syncId = setInterval(fetchSync, 60000);
     const clockId = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -349,13 +360,17 @@ export default function PolyActivity() {
 
   // Load detail when selection changes
   useEffect(() => {
+    let cancelled = false;
     if (selectedWallet) {
       setLoadingData(true);
       sharddbAPI.getEquity(selectedWallet).then((res) => {
+        if (cancelled) return;
         setDaily(res.daily || []);
         setSummary(res.summary);
-      }).catch(console.error).finally(() => setLoadingData(false));
-      sharddbAPI.getEquityCurve(selectedWallet).then(setEquityCurve).catch(console.error);
+      }).catch(console.error).finally(() => { if (!cancelled) setLoadingData(false); });
+      sharddbAPI.getEquityCurve(selectedWallet).then((res) => {
+        if (!cancelled) setEquityCurve(res);
+      }).catch(console.error);
     } else if (selectedGroup === '_total') {
       // Total: aggregate all non-excluded groups client-side
       setEquityCurve(null);
@@ -363,6 +378,7 @@ export default function PolyActivity() {
       const includedGroups = groups.filter((g) => g.group !== '_total' && !totalExcluded.has(g.group));
       Promise.all(includedGroups.map((g) => sharddbAPI.getGroupEquity(g.group)))
         .then((results) => {
+          if (cancelled) return;
           // Merge daily data
           const dayMap = new Map<string, DailyItem>();
           const sum = { total_buy: 0, total_sell: 0, pnl: 0, wins: 0, losses: 0, open_count: 0, position_count: 0 };
@@ -394,19 +410,21 @@ export default function PolyActivity() {
           setSummary(sum);
         })
         .catch(console.error)
-        .finally(() => setLoadingData(false));
+        .finally(() => { if (!cancelled) setLoadingData(false); });
     } else if (selectedGroup) {
       setEquityCurve(null);
       setLoadingData(true);
       sharddbAPI.getGroupEquity(selectedGroup).then((res) => {
+        if (cancelled) return;
         setDaily(res.daily || []);
         setSummary(res.summary);
-      }).catch(console.error).finally(() => setLoadingData(false));
+      }).catch(console.error).finally(() => { if (!cancelled) setLoadingData(false); });
     } else {
       setDaily([]);
       setSummary(null);
     }
-  }, [selectedGroup, selectedWallet, selectedGroup === '_total' ? [...totalExcluded].join(',') : '']);
+    return () => { cancelled = true; };
+  }, [selectedGroup, selectedWallet, dataRevision, selectedGroup === '_total' ? [...totalExcluded].join(',') : '']);
 
   const filteredGroups = useMemo(() => {
     if (!search.trim()) return groups;
@@ -649,14 +667,18 @@ export default function PolyActivity() {
 
   // 通用：加载分组和钱包数据
   const excludeInitedRef = React.useRef(false);
-  const refreshData = () => {
+  const refreshData = async () => {
     setLoading(true);
-    sharddbAPI.getGroups().then((g) => {
+    try {
+      const [g, ws] = await Promise.all([
+        sharddbAPI.getGroups(),
+        sharddbAPI.getWallets(),
+      ]);
       setGroups(g);
       if (role === 'customer') {
         // customer: 自动选中第一个非下划线分组
         const first = g.find((grp) => !grp.group.startsWith('_'));
-        if (first && !selectedGroup) setSelectedGroup(first.group);
+        if (first) setSelectedGroup((current) => current ?? first.group);
       } else if (!excludeInitedRef.current) {
         // admin: 首次加载自动排除所有以 _ 开头的分组
         excludeInitedRef.current = true;
@@ -668,14 +690,17 @@ export default function PolyActivity() {
           return next;
         });
       }
-      sharddbAPI.getWallets().then((ws) => {
-        const labels: Record<string, string> = {};
-        const pnls: Record<string, number> = {};
-        for (const w of ws) { if (w.label) labels[w.wallet] = w.label; pnls[w.wallet] = w.pnl ?? 0; }
-        setWalletLabels(labels);
-        setWalletPnls(pnls);
-      });
-    }).catch(console.error).finally(() => setLoading(false));
+      const labels: Record<string, string> = {};
+      const pnls: Record<string, number> = {};
+      for (const w of ws) { if (w.label) labels[w.wallet] = w.label; pnls[w.wallet] = w.pnl ?? 0; }
+      setWalletLabels(labels);
+      setWalletPnls(pnls);
+      setDataRevision((revision) => revision + 1);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (noGroup) return <NoGroupOwnerHint />;
@@ -686,7 +711,7 @@ export default function PolyActivity() {
         <h1>PolyActivity</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 'var(--pa-fs-base)', color: 'var(--pa-text2)' }}>{groups.length} 分组</span>
-          <button className="pa-chart-tab" style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }} onClick={refreshData}>刷新</button>
+          <button className="pa-chart-tab" style={{ fontSize: 'var(--pa-fs-sm)', padding: '3px 10px' }} onClick={() => refreshData()}>刷新</button>
           {role === 'admin' && (
             <button
               className="pa-chart-tab"
@@ -744,7 +769,7 @@ export default function PolyActivity() {
                 btn.setAttribute('disabled', 'true');
                 try {
                   const res = await sharddbAPI.rebuildWallet(w, hard);
-                  refreshData();
+                  await refreshData();
                   alert((res.hard ? '彻底重建' : '普通重建') + '完成，数据已刷新');
                 } catch (err) {
                   alert(`重建失败: ${err}`);
