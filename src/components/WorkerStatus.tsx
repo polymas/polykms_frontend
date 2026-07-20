@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, Space, Tag, Tooltip, Spin } from 'antd';
 import { ReloadOutlined, CopyOutlined, DownloadOutlined } from '@ant-design/icons';
-import { workersAPI, WorkerStatus as WorkerStatusType } from '../utils/api';
+import { sharddbAPI, workersAPI, WorkerStatus as WorkerStatusType } from '../utils/api';
 import { secureLog } from '../utils/security';
 import './WorkerStatus.css';
 
@@ -23,6 +23,59 @@ function abbreviateProxyAddressForDisplay(addr: string): string {
   return t;
 }
 
+function normalizeSearchText(value: unknown): string {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Build one searchable document per worker so fields added by /status or /info
+ * are searchable without maintaining a second, incomplete field allow-list.
+ */
+function workerMatchesSearch(status: WorkerStatusType, query: string): boolean {
+  const keywords = normalizeSearchText(query).split(' ').filter(Boolean);
+  if (keywords.length === 0) return true;
+
+  // online / offline both contain "li". Treat status as an exact term so a
+  // name search such as "li" does not accidentally match every worker.
+  const statusTerms = status.status === 'online'
+    ? ['online', '在线']
+    : status.status === 'error'
+      ? ['error', 'offline', '离线', '错误']
+      : ['offline', '离线'];
+  const searchableText = normalizeSearchText(
+    Object.entries(status)
+      .filter(([key]) => key !== 'status')
+      .flatMap(([key, value]) => [key, value])
+      .join(' '),
+  );
+
+  return keywords.every((keyword) => (
+    searchableText.includes(keyword) || statusTerms.includes(keyword)
+  ));
+}
+
+function attachNetDeposits(
+  statuses: WorkerStatusType[],
+  wallets: { wallet: string; net_deposit: number }[],
+): WorkerStatusType[] {
+  const byWallet = new Map(wallets.map((item) => [item.wallet.trim().toLowerCase(), item.net_deposit || 0]));
+  return statuses.map((status) => ({
+    ...status,
+    asset_net_in: status.proxy_address
+      ? byWallet.get(status.proxy_address.trim().toLowerCase())
+      : undefined,
+  }));
+}
+
+const formatMoney = (value: number): string => value.toLocaleString('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 import { getRole } from '../utils/api';
 
 function CustomerWorkerStatus() {
@@ -31,7 +84,7 @@ function CustomerWorkerStatus() {
 
   useEffect(() => {
     const load = () => {
-      workersAPI.getWorkerStatuses().then((res) => {
+      Promise.all([workersAPI.getWorkerStatuses(), sharddbAPI.getWallets()]).then(([res, wallets]) => {
         // customer 视角只看在线（updated_at / checked_at 60s 内）
         const all = res.statuses || [];
         const online = all.filter((s) => {
@@ -39,7 +92,7 @@ function CustomerWorkerStatus() {
           if (!t) return false;
           return Date.now() - new Date(t).getTime() <= 60 * 1000;
         });
-        setStatuses(online);
+        setStatuses(attachNetDeposits(online, wallets));
       }).catch(() => {}).finally(() => setLoading(false));
     };
     load();
@@ -85,16 +138,23 @@ function CustomerWorkerStatus() {
                     <th>状态</th>
                     <th style={{ textAlign: 'right' }}>持仓数</th>
                     <th style={{ textAlign: 'right' }}>挂单数</th>
+                    <th style={{ textAlign: 'right' }}>累计获利 / 资产净入</th>
                   </tr>
                 </thead>
                 <tbody>
                   {statuses.map((s) => {
-                    let posCount = 0, ordCount = 0;
+                    let posCount = 0, ordCount = 0, totalAssets: number | null = null;
                     try {
                       const d = s.data ? JSON.parse(s.data) : {};
                       posCount = d.position_count ?? d.positions ?? 0;
                       ordCount = d.order_count ?? d.orders ?? 0;
+                      const positionValue = Number(d.positions?.value ?? d['positions.value'] ?? 0);
+                      const balance = Number(d.pusd_balance ?? d.usdc_balance ?? d.wallet?.pusd_balance ?? d.wallet?.usdc_balance ?? 0);
+                      totalAssets = positionValue + balance;
                     } catch {}
+                    const cumulativeProfit = totalAssets != null && s.asset_net_in != null
+                      ? totalAssets - s.asset_net_in
+                      : null;
                     return (
                       <tr key={s.id}>
                         <td>{s.key_name || '-'}</td>
@@ -102,6 +162,12 @@ function CustomerWorkerStatus() {
                         <td><Tag color={s.status === 'online' ? 'green' : 'red'}>{s.status === 'online' ? '在线' : '离线'}</Tag></td>
                         <td style={{ textAlign: 'right' }}>{posCount}</td>
                         <td style={{ textAlign: 'right' }}>{ordCount}</td>
+                        <td className="profit-net-cell">
+                          <strong className={cumulativeProfit == null ? '' : cumulativeProfit >= 0 ? 'amount-positive' : 'amount-negative'}>
+                            {cumulativeProfit == null ? '-' : formatMoney(cumulativeProfit)}
+                          </strong>
+                          <span>净入 {s.asset_net_in == null ? '-' : formatMoney(s.asset_net_in)}</span>
+                        </td>
                       </tr>
                     );
                   })}
@@ -133,6 +199,7 @@ export default function WorkerStatus() {
     'tail_order_share',
     'balance',
     'total_assets',
+    'cumulative_profit',
     'version_number',
   ]);
   // 自动刷新功能（可在页面上暂停/恢复）
@@ -172,6 +239,7 @@ export default function WorkerStatus() {
     { key: 'tail_order_share', label: '尾盘下注份额' },
     { key: 'balance', label: 'pUSD余额' },
     { key: 'total_assets', label: '资产总额' },
+    { key: 'cumulative_profit', label: '累计获利 / 资产净入' },
     { key: 'version_number', label: '程序版本号' },
   ];
 
@@ -198,7 +266,10 @@ export default function WorkerStatus() {
       setError('');
 
       // 后端总是返回 secrets 全集 + worker_status 合并；前端按时间口径判断在线
-      const response = await workersAPI.getWorkerStatuses();
+      const [response, wallets] = await Promise.all([
+        workersAPI.getWorkerStatuses(),
+        sharddbAPI.getWallets(),
+      ]);
       secureLog.log('加载工作机状态响应:', response);
       // 调试：检查是否有 info_data 字段
       if (response && response.statuses && response.statuses.length > 0) {
@@ -235,7 +306,7 @@ export default function WorkerStatus() {
         });
 
         // 转换为数组
-        const uniqueStatuses = Array.from(statusMap.values());
+        const uniqueStatuses = attachNetDeposits(Array.from(statusMap.values()), wallets);
         setStatuses(uniqueStatuses);
 
         secureLog.log('去重前数量:', response.statuses.length, '去重后数量:', uniqueStatuses.length);
@@ -594,43 +665,27 @@ export default function WorkerStatus() {
     return '-';
   };
 
+  const getFinancialValues = (status: WorkerStatusType, mergedData: Record<string, any>) => {
+    const assetsText = getKeyMetricValue(mergedData, 'total_assets');
+    const totalAssets = assetsText === '-' ? null : Number(assetsText);
+    const netIn = status.asset_net_in ?? null;
+    return {
+      netIn,
+      cumulativeProfit: totalAssets != null && !Number.isNaN(totalAssets) && netIn != null
+        ? totalAssets - netIn
+        : null,
+    };
+  };
+
 
   // 过滤和排序状态列表
   // 后端总返回 secrets 全集；前端做搜索 / 排序 / 在线时间口径筛选
   const filteredAndSortedStatuses = React.useMemo(() => {
     let filtered = statuses;
 
-    // 全局搜索过滤（搜索所有字段，包括业务数据）
+    // 全局搜索过滤：基础字段、data、info_data 以及后端后续新增字段都纳入索引。
     if (searchKeyword.trim()) {
-      const keyword = searchKeyword.toLowerCase().trim();
-      filtered = filtered.filter((status) => {
-        // 搜索基本字段
-        const basicMatch = (
-          (status.key_name && status.key_name.toLowerCase().includes(keyword)) ||
-          (status.ip && status.ip.toLowerCase().includes(keyword)) ||
-          (status.proxy_address && status.proxy_address.toLowerCase().includes(keyword)) ||
-          (status.wallet_type && status.wallet_type.toLowerCase().includes(keyword)) ||
-          (status.status && status.status.toLowerCase().includes(keyword)) ||
-          (status.error_msg && status.error_msg.toLowerCase().includes(keyword)) ||
-          (status.response_time && String(status.response_time).includes(keyword)) ||
-          (status.status_code && String(status.status_code).includes(keyword))
-        );
-
-        // 搜索业务数据
-        let businessMatch = false;
-        if (status.data) {
-          try {
-            const businessData = JSON.parse(status.data);
-            const dataStr = JSON.stringify(businessData).toLowerCase();
-            businessMatch = dataStr.includes(keyword);
-          } catch {
-            // 如果解析失败，直接搜索原始字符串
-            businessMatch = status.data.toLowerCase().includes(keyword);
-          }
-        }
-
-        return basicMatch || businessMatch;
-      });
+      filtered = filtered.filter((status) => workerMatchesSearch(status, searchKeyword));
     }
 
     // 按指定字段排序
@@ -727,6 +782,11 @@ export default function WorkerStatus() {
           const numB = strB === '-' ? NaN : Number(strB);
           valueA = !Number.isNaN(numA) ? numA : (strA === '-' ? '' : strA.toLowerCase());
           valueB = !Number.isNaN(numB) ? numB : (strB === '-' ? '' : strB.toLowerCase());
+          break;
+        }
+        case 'cumulative_profit': {
+          valueA = getFinancialValues(a, getMergedDataForSort(a)).cumulativeProfit ?? '';
+          valueB = getFinancialValues(b, getMergedDataForSort(b)).cumulativeProfit ?? '';
           break;
         }
         default:
@@ -870,6 +930,11 @@ export default function WorkerStatus() {
         case 'balance':
         case 'total_assets':
           return getKeyMetricValue(mergedData, fieldKey);
+        case 'cumulative_profit': {
+          const financials = getFinancialValues(status, mergedData);
+          if (financials.cumulativeProfit == null) return '-';
+          return `${financials.cumulativeProfit.toFixed(2)}（资产净入 ${financials.netIn?.toFixed(2) ?? '-'}）`;
+        }
         case 'version_number':
           return getKeyMetricValue(staticInfo, 'version_number');
         default:
@@ -962,16 +1027,29 @@ export default function WorkerStatus() {
               <div className="search-box-above-table">
                 <div className="search-box-left">
                   <input
-                    type="text"
-                    placeholder="全局搜索（所有字段）..."
+                    type="search"
+                    placeholder="搜索名称、IP、地址、版本等"
+                    aria-label="搜索工作机"
                     value={searchKeyword}
-                    onChange={(e) => setSearchKeyword(e.target.value)}
+                    onChange={(e) => {
+                      setSearchKeyword(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setSearchKeyword('');
+                        setCurrentPage(1);
+                      }
+                    }}
                     className="search-input"
                   />
                   {searchKeyword && (
                     <button
                       className="clear-search-button"
-                      onClick={() => setSearchKeyword('')}
+                      onClick={() => {
+                        setSearchKeyword('');
+                        setCurrentPage(1);
+                      }}
                       title="清除搜索"
                     >
                       ✕
@@ -1252,6 +1330,22 @@ export default function WorkerStatus() {
                           {sortField === 'total_assets' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
                         </th>
                       )}
+                      {selectedFields.includes('cumulative_profit') && (
+                        <th
+                          className="key-metric-header sortable-header"
+                          onClick={() => {
+                            if (sortField === 'cumulative_profit') {
+                              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortField('cumulative_profit');
+                              setSortOrder('desc');
+                            }
+                          }}
+                        >
+                          累计获利 / 资产净入
+                          {sortField === 'cumulative_profit' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+                        </th>
+                      )}
                       {selectedFields.includes('version_number') && (
                         <th
                           className="key-metric-header sortable-header"
@@ -1453,6 +1547,17 @@ export default function WorkerStatus() {
                                 {getKeyMetricValue(mergedData, 'total_assets')}
                               </td>
                             )}
+                            {selectedFields.includes('cumulative_profit') && (() => {
+                              const financials = getFinancialValues(status, mergedData);
+                              return (
+                                <td className="key-metric-cell profit-net-cell">
+                                  <strong className={financials.cumulativeProfit == null ? '' : financials.cumulativeProfit >= 0 ? 'amount-positive' : 'amount-negative'}>
+                                    {financials.cumulativeProfit == null ? '-' : formatMoney(financials.cumulativeProfit)}
+                                  </strong>
+                                  <span>净入 {financials.netIn == null ? '-' : formatMoney(financials.netIn)}</span>
+                                </td>
+                              );
+                            })()}
                             {selectedFields.includes('version_number') && (
                               <td className="key-metric-cell">
                                 {/* version_number 只从 info_data（info接口）中获取，不从 status 接口获取 */}
@@ -1535,4 +1640,3 @@ export default function WorkerStatus() {
     </div>
   );
 }
-

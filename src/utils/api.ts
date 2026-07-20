@@ -323,6 +323,10 @@ export interface WorkerStatus {
   checked_at: string;
   created_at: string;
   updated_at: string; // 更新时间，用于判断是否在线
+  /** 按代理钱包从链上存取款汇总匹配：充值 - 提现 */
+  asset_net_in?: number;
+  /** 当前资产总额 - 资产净入 */
+  cumulative_profit?: number;
 }
 
 export interface WorkerStatusListResponse {
@@ -794,6 +798,7 @@ export interface SharddbWalletSummary {
   open_count: number;
   position_count: number;
   last_updated: string;
+  net_deposit: number;
 }
 
 /** sharddb 单钱包 equity 响应 */
@@ -966,4 +971,3 @@ export interface SharddbRecordItem {
   outcome: string;
   date: string;
 }
-

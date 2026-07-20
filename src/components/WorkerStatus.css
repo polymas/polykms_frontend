@@ -838,6 +838,37 @@
   color: #4338ca !important;
 }
 
+.worker-status-container .profit-net-cell {
+  min-width: 132px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.worker-status-container .profit-net-cell strong,
+.worker-status-container .profit-net-cell span {
+  display: block;
+}
+
+.worker-status-container .profit-net-cell strong {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.worker-status-container .profit-net-cell span {
+  margin-top: 2px;
+  color: #8c8c8c;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.worker-status-container .profit-net-cell .amount-positive {
+  color: #389e0d;
+}
+
+.worker-status-container .profit-net-cell .amount-negative {
+  color: #cf1322;
+}
+
 .worker-status-container .filter-checkbox,
 .worker-status-container .field-checkbox {
   color: var(--ws-text);
