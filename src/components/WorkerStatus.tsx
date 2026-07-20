@@ -60,9 +60,13 @@ function workerMatchesSearch(status: WorkerStatusType, query: string): boolean {
 
 function attachNetDeposits(
   statuses: WorkerStatusType[],
-  wallets: { wallet: string; net_deposit: number }[],
+  wallets: { wallet: string; net_deposit: number | null }[],
 ): WorkerStatusType[] {
-  const byWallet = new Map(wallets.map((item) => [item.wallet.trim().toLowerCase(), item.net_deposit || 0]));
+  const byWallet = new Map(
+    wallets
+      .filter((item) => item.net_deposit != null && item.net_deposit !== 0)
+      .map((item) => [item.wallet.trim().toLowerCase(), item.net_deposit as number]),
+  );
   return statuses.map((status) => ({
     ...status,
     asset_net_in: status.proxy_address
@@ -84,7 +88,7 @@ function CustomerWorkerStatus() {
 
   useEffect(() => {
     const load = () => {
-      Promise.all([workersAPI.getWorkerStatuses(), sharddbAPI.getWallets()]).then(([res, wallets]) => {
+      Promise.all([workersAPI.getWorkerStatuses(), sharddbAPI.getWalletNetDeposits()]).then(([res, wallets]) => {
         // customer 视角只看在线（updated_at / checked_at 60s 内）
         const all = res.statuses || [];
         const online = all.filter((s) => {
@@ -268,7 +272,7 @@ export default function WorkerStatus() {
       // 后端总是返回 secrets 全集 + worker_status 合并；前端按时间口径判断在线
       const [response, wallets] = await Promise.all([
         workersAPI.getWorkerStatuses(),
-        sharddbAPI.getWallets(),
+        sharddbAPI.getWalletNetDeposits(),
       ]);
       secureLog.log('加载工作机状态响应:', response);
       // 调试：检查是否有 info_data 字段

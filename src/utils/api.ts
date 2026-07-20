@@ -798,7 +798,8 @@ export interface SharddbWalletSummary {
   open_count: number;
   position_count: number;
   last_updated: string;
-  net_deposit: number;
+  /** null 表示存取款数据尚未同步或没有匹配记录 */
+  net_deposit: number | null;
 }
 
 /** sharddb 单钱包 equity 响应 */
@@ -822,6 +823,10 @@ export interface SharddbEquityResponse {
 export const sharddbAPI = {
   getWallets: async (): Promise<SharddbWalletSummary[]> => {
     const response = await api.get<SharddbWalletSummary[]>('/api/sharddb/wallets');
+    return response.data;
+  },
+  getWalletNetDeposits: async (): Promise<{ wallet: string; net_deposit: number }[]> => {
+    const response = await api.get<{ wallet: string; net_deposit: number }[]>('/api/sharddb/wallet_net_deposits');
     return response.data;
   },
   getGroups: async (): Promise<SharddbGroupItem[]> => {
