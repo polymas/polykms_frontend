@@ -310,6 +310,7 @@ export interface WorkerStatus {
   id: number;
   secret_id: number;
   key_name: string;
+  active: boolean;
   ip: string;
   proxy_address?: string; // 代理地址
   wallet_type?: string; // 钱包类型
@@ -332,6 +333,12 @@ export interface WorkerStatus {
 export interface WorkerStatusListResponse {
   count: number;
   statuses: WorkerStatus[];
+}
+
+export interface UpdateWorkerActiveResponse {
+  secret_id: number;
+  active: boolean;
+  message: string;
 }
 
 export interface WorkerStatusHistoryResponse {
@@ -384,6 +391,17 @@ export const workersAPI = {
   getWorkerStatuses: async (): Promise<WorkerStatusListResponse> => {
     // hideOffline 已废弃：后端总是返回 secrets 全集，前端通过 isWorkerOnline 时间口径筛选
     const response = await api.get<WorkerStatusListResponse>('/api/v1/workers/status');
+    return response.data;
+  },
+
+  /**
+   * 更新工作机在 secrets 表中的活跃状态（仅管理员）
+   */
+  updateWorkerActive: async (secretId: number, active: boolean): Promise<UpdateWorkerActiveResponse> => {
+    const response = await api.patch<UpdateWorkerActiveResponse>(
+      `/api/v1/workers/${secretId}/active`,
+      { active },
+    );
     return response.data;
   },
 

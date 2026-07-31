@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Button, Space, Tag, Tooltip, Spin } from 'antd';
+import { Button, Space, Tag, Tooltip, Spin, Switch } from 'antd';
 import { ReloadOutlined, CopyOutlined, DownloadOutlined } from '@ant-design/icons';
 import { sharddbAPI, workersAPI, WorkerStatus as WorkerStatusType } from '../utils/api';
 import { secureLog } from '../utils/security';
@@ -215,6 +215,8 @@ export default function WorkerStatus() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc'); // 排序顺序
   const [currentPage, setCurrentPage] = useState<number>(1); // 当前页
   const [pageSize, setPageSize] = useState<number>(10); // 每页条数；默认 10，可选 10/20/50/100/500/1000/5000/10000
+  const [hideInactive, setHideInactive] = useState(true);
+  const [updatingActiveIds, setUpdatingActiveIds] = useState<Set<number>>(new Set());
 
   // 使用 ref 保存最新状态，避免闭包问题
   const statusesRef = useRef<WorkerStatusType[]>([]);
@@ -350,6 +352,29 @@ export default function WorkerStatus() {
     setTimeout(() => {
       setToast(null);
     }, 3000); // 3秒后自动消失
+  };
+
+  const handleActiveChange = async (status: WorkerStatusType, active: boolean) => {
+    const secretId = status.secret_id;
+    setUpdatingActiveIds((prev) => new Set(prev).add(secretId));
+    setStatuses((prev) => prev.map((item) => (
+      item.secret_id === secretId ? { ...item, active } : item
+    )));
+    try {
+      await workersAPI.updateWorkerActive(secretId, active);
+      showToast(`${status.key_name || status.ip} 已设为${active ? '活跃' : '非活跃'}`);
+    } catch (err: any) {
+      setStatuses((prev) => prev.map((item) => (
+        item.secret_id === secretId ? { ...item, active: !active } : item
+      )));
+      showToast(err.response?.data?.error || '更新活跃状态失败', 'error');
+    } finally {
+      setUpdatingActiveIds((prev) => {
+        const next = new Set(prev);
+        next.delete(secretId);
+        return next;
+      });
+    }
   };
 
   // 初始加载：加载状态数据（包含 info 和 status）
@@ -687,6 +712,10 @@ export default function WorkerStatus() {
   const filteredAndSortedStatuses = React.useMemo(() => {
     let filtered = statuses;
 
+    if (hideInactive) {
+      filtered = filtered.filter((status) => status.active);
+    }
+
     // 全局搜索过滤：基础字段、data、info_data 以及后端后续新增字段都纳入索引。
     if (searchKeyword.trim()) {
       filtered = filtered.filter((status) => workerMatchesSearch(status, searchKeyword));
@@ -823,7 +852,7 @@ export default function WorkerStatus() {
     });
 
     return sorted;
-  }, [statuses, searchKeyword, sortField, sortOrder]);
+  }, [statuses, hideInactive, searchKeyword, sortField, sortOrder]);
 
   // 搜索 / 排序 / 每页条数变化时回到第 1 页
   useEffect(() => {
@@ -1061,6 +1090,21 @@ export default function WorkerStatus() {
                   )}
                 </div>
                 <div className="search-box-right">
+                  <button
+                    type="button"
+                    className={`toggle-button inactive-visibility-toggle${hideInactive ? ' is-filtering' : ''}`}
+                    onClick={() => {
+                      setHideInactive((prev) => !prev);
+                      setCurrentPage(1);
+                    }}
+                    title={hideInactive ? '显示非活跃机器' : '隐藏非活跃机器'}
+                    aria-pressed={!hideInactive}
+                  >
+                    {hideInactive ? '显示非活跃机器' : '隐藏非活跃机器'}
+                    <span className="inactive-count">
+                      {statuses.filter((status) => !status.active).length}
+                    </span>
+                  </button>
                   <button
                     type="button"
                     className="toggle-button"
@@ -1366,6 +1410,7 @@ export default function WorkerStatus() {
                           {sortField === 'version_number' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
                         </th>
                       )}
+                      <th className="active-control-header">活跃</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1568,6 +1613,20 @@ export default function WorkerStatus() {
                                 {getKeyMetricValue(staticInfo, 'version_number')}
                               </td>
                             )}
+                            <td className="active-control-cell">
+                              <Tooltip title={status.active ? '点击设为非活跃' : '点击设为活跃'}>
+                                <Switch
+                                  size="small"
+                                  checked={status.active}
+                                  loading={updatingActiveIds.has(status.secret_id)}
+                                  disabled={updatingActiveIds.has(status.secret_id)}
+                                  checkedChildren="活跃"
+                                  unCheckedChildren="停用"
+                                  onChange={(checked) => handleActiveChange(status, checked)}
+                                  aria-label={`${status.key_name || status.ip}活跃状态`}
+                                />
+                              </Tooltip>
+                            </td>
                           </tr>
                         </React.Fragment>
                       );

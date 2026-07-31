@@ -884,3 +884,40 @@
     transform: none;
   }
 }
+.inactive-visibility-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.inactive-visibility-toggle.is-filtering {
+  border-color: #d97706;
+  color: #b45309;
+  background: #fffbeb;
+}
+
+.inactive-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: inherit;
+  background: rgba(217, 119, 6, 0.12);
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.active-control-header,
+.active-control-cell {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  min-width: 92px;
+  text-align: center !important;
+  background: var(--polydash-bg-card, #fff);
+  box-shadow: -8px 0 14px -14px rgba(15, 23, 42, 0.45);
+}
+
+.worker-status-table thead .active-control-header {
+  z-index: 3;
+}
