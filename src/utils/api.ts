@@ -173,6 +173,7 @@ export interface Secret {
   wallet_type?: string; // 钱包类型
   signature_type?: number; // 签名类型
   extra_info?: string; // 额外信息（JSON字符串）
+  access_mode?: 'ip_auto' | 'approval'; // 放行模式：ip_auto=IP白名单自动放行，approval=必须点击审批
   created_at: string;
 }
 
@@ -204,6 +205,7 @@ export interface ListSecretsResponse {
 export interface UpdateSecretMetaRequest {
   key_name: string;
   tail_order_share: number;
+  access_mode?: 'ip_auto' | 'approval'; // 不传则不变
   reason?: string;
 }
 
@@ -211,6 +213,7 @@ export interface UpdateSecretMetaResponse {
   id: number;
   key_name: string;
   tail_order_share: number;
+  access_mode: string;
   updated_at: string;
   message: string;
 }

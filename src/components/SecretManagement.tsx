@@ -13,7 +13,8 @@ import {
   Table,
   message,
   Typography,
-  Divider
+  Divider,
+  Tag
 } from 'antd';
 import {
   EyeOutlined,
@@ -305,6 +306,7 @@ export default function SecretManagement() {
     editForm.setFieldsValue({
       key_name: record.key_name || '',
       tail_order_share: parseTailOrderShare(record.extra_info),
+      access_mode: record.access_mode || 'ip_auto',
       reason: '',
     });
     setEditModalVisible(true);
@@ -320,6 +322,7 @@ export default function SecretManagement() {
       const updateData: any = {
         key_name: sanitizeInput(values.key_name),
         tail_order_share: Math.round(Number(values.tail_order_share)),
+        access_mode: values.access_mode,
         reason: values.reason ? sanitizeInput(values.reason) : undefined,
       };
 
@@ -452,6 +455,21 @@ export default function SecretManagement() {
         );
       },
       ellipsis: true,
+    },
+    {
+      title: '放行模式',
+      dataIndex: 'access_mode',
+      key: 'access_mode',
+      width: 110,
+      render: (mode: string) =>
+        mode === 'approval'
+          ? <Tag color="orange">点击审批</Tag>
+          : <Tag color="green">IP 自动</Tag>,
+      filters: [
+        { text: 'IP 自动', value: 'ip_auto' },
+        { text: '点击审批', value: 'approval' },
+      ],
+      onFilter: (value: any, record: any) => (record.access_mode || 'ip_auto') === value,
     },
     {
       title: '钱包类型',
@@ -747,6 +765,16 @@ export default function SecretManagement() {
                   ]}
                 >
                   <InputNumber min={0} max={1000} step={1} precision={0} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item
+                  label="放行模式"
+                  name="access_mode"
+                  extra="IP 自动：worker 从绑定 IP 拉取即放行。点击审批：不看 IP，每次取私钥都要在 Telegram 审批群点击同意。"
+                >
+                  <Radio.Group>
+                    <Radio.Button value="ip_auto">IP 自动</Radio.Button>
+                    <Radio.Button value="approval">点击审批</Radio.Button>
+                  </Radio.Group>
                 </Form.Item>
                 <Form.Item label="变更原因（可选）" name="reason">
                   <Input.TextArea rows={3} maxLength={500} placeholder="用于审计日志，建议填写本次修改原因" />
