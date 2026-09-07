@@ -246,9 +246,12 @@ export default function SecretManagement() {
       const tailOrderShare = Math.round(Number(values.tail_order_share ?? 10));
       secretToUpload.extra_info = JSON.stringify({ tail_order_share: tailOrderShare });
 
-      // 只加密需要后端加密存储的字段：private_key
+      // 只加密需要后端加密存储的字段：private_key、edge_token
       if (values.private_key) {
         secretToUpload.private_key = await encryptSecret(values.private_key, clientKey);
+      }
+      if (values.edge_token) {
+        secretToUpload.edge_token = await encryptSecret(values.edge_token.trim(), clientKey);
       }
 
       await secretsAPI.storeSecret(secretToUpload);
@@ -260,7 +263,7 @@ export default function SecretManagement() {
       setWalletAddress('');
       setProxyAddress('');
       // 强制清除私钥字段（防止浏览器自动填充）
-      form.setFieldsValue({ private_key: '' });
+      form.setFieldsValue({ private_key: '', edge_token: '' });
 
       if (canListSecrets) {
         await loadSecrets();
@@ -307,6 +310,7 @@ export default function SecretManagement() {
       key_name: record.key_name || '',
       tail_order_share: parseTailOrderShare(record.extra_info),
       access_mode: record.access_mode || 'ip_auto',
+      edge_token: '', // 不回显已有 token，留空=不修改
       reason: '',
     });
     setEditModalVisible(true);
@@ -325,6 +329,17 @@ export default function SecretManagement() {
         access_mode: values.access_mode,
         reason: values.reason ? sanitizeInput(values.reason) : undefined,
       };
+
+      // edge_token 留空=不修改；填了才用客户端密钥加密后提交
+      const edgeTokenInput = (values.edge_token || '').trim();
+      if (edgeTokenInput) {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          message.error('未找到登录token');
+          return;
+        }
+        updateData.edge_token = await encryptSecret(edgeTokenInput, parseJWT(token));
+      }
 
       await secretsAPI.updateSecretMeta(editingSecret.id, updateData);
       message.success('密钥信息更新成功');
@@ -593,6 +608,22 @@ export default function SecretManagement() {
                   />
                 </Form.Item>
                 <Form.Item
+                  label="Edge Token"
+                  name="edge_token"
+                  tooltip="下发给 worker 的 POLY_UMA_EDGE_TOKEN，与私钥同样加密存储、加密下发"
+                  extra="留空即使用全局共用 token；只有需要单独隔离的机器才填"
+                >
+                  <Input.Password
+                    placeholder="POLY_UMA_EDGE_TOKEN"
+                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+                    style={{ fontFamily: 'monospace' }}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                  />
+                </Form.Item>
+                <Form.Item
                   label="签名类型"
                   name="signature_type"
                   rules={[{ required: true, message: '请选择签名类型' }]}
@@ -775,6 +806,21 @@ export default function SecretManagement() {
                     <Radio.Button value="ip_auto">IP 自动</Radio.Button>
                     <Radio.Button value="approval">点击审批</Radio.Button>
                   </Radio.Group>
+                </Form.Item>
+                <Form.Item
+                  label="Edge Token"
+                  name="edge_token"
+                  extra="留空=保持不变（已存的 token 不会回显）。未单独设置时该 key 用的是全局共用 token；填写则只覆盖这一条"
+                >
+                  <Input.Password
+                    placeholder="POLY_UMA_EDGE_TOKEN"
+                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+                    style={{ fontFamily: 'monospace' }}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                  />
                 </Form.Item>
                 <Form.Item label="变更原因（可选）" name="reason">
                   <Input.TextArea rows={3} maxLength={500} placeholder="用于审计日志，建议填写本次修改原因" />

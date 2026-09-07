@@ -185,6 +185,7 @@ export interface StoreSecretRequest {
   proxy_address?: string; // 代理地址
   base_address?: string; // 基础地址
   private_key?: string; // 私钥（需要加密，后端会再次加密存储）
+  edge_token?: string; // POLY_UMA_EDGE_TOKEN（需要加密，后端会再次加密存储）
   wallet_type?: string; // 钱包类型
   signature_type?: number; // 签名类型
   extra_info?: string; // 额外信息（JSON字符串）
@@ -206,6 +207,7 @@ export interface UpdateSecretMetaRequest {
   key_name: string;
   tail_order_share: number;
   access_mode?: 'ip_auto' | 'approval'; // 不传则不变
+  edge_token?: string; // POLY_UMA_EDGE_TOKEN 密文（不传=不变，传空串=清空）
   reason?: string;
 }
 
