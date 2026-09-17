@@ -383,6 +383,14 @@ export const secretsAPI = {
   },
 
   /**
+   * 检查当前请求 IP 是否已有白名单（ip_auto）密钥（同一 IP 只允许一条）
+   */
+  checkIP: async (): Promise<{ ip: string; ip_auto_exists: boolean }> => {
+    const response = await api.get<{ ip: string; ip_auto_exists: boolean }>('/api/v1/secrets/ip-check');
+    return response.data;
+  },
+
+  /**
    * 更新密钥元信息（仅管理员）：key_name + tail_order_share
    */
   updateSecretMeta: async (id: number, data: UpdateSecretMetaRequest): Promise<UpdateSecretMetaResponse> => {

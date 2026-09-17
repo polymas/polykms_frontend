@@ -14,7 +14,8 @@ import {
   message,
   Typography,
   Divider,
-  Tag
+  Tag,
+  Alert
 } from 'antd';
 import {
   EyeOutlined,
@@ -51,6 +52,20 @@ export default function SecretManagement() {
   const canEditSecrets = role === 'admin';
 
   // 加载密钥列表（admin 全量，customer 本人；data_entry 不展示列表）
+  // 当前 IP 白名单占用情况：ip_auto 密钥的 IP 取自上传请求来源，同一 IP 只允许一条
+  const [ipCheck, setIpCheck] = useState<{ ip: string; ip_auto_exists: boolean } | null>(null);
+  const accessModeValue = Form.useWatch('access_mode', form);
+  const ipAutoBlocked = (accessModeValue ?? 'ip_auto') === 'ip_auto' && !!ipCheck?.ip_auto_exists;
+
+  const refreshIPCheck = async () => {
+    try {
+      setIpCheck(await secretsAPI.checkIP());
+    } catch {
+      // 检查失败不阻塞录入，最终以后端校验为准
+      setIpCheck(null);
+    }
+  };
+
   const loadSecrets = async () => {
     if (!canListSecrets) return;
     setLoading(true);
@@ -69,6 +84,7 @@ export default function SecretManagement() {
     if (canListSecrets) {
       loadSecrets();
     }
+    refreshIPCheck();
 
     // 组件卸载时清理敏感状态
     return () => {
@@ -253,6 +269,7 @@ export default function SecretManagement() {
 
       await secretsAPI.storeSecret(secretToUpload);
       message.success('密钥上传成功');
+      refreshIPCheck();
 
       // 安全清理：立即清除敏感数据
       form.resetFields();
@@ -266,7 +283,13 @@ export default function SecretManagement() {
         await loadSecrets();
       }
     } catch (err: any) {
-      message.error(getSafeErrorMessage(err, '上传失败'));
+      if (err?.response?.status === 409) {
+        // 名称重复 / 同 IP 已有白名单密钥：业务冲突，直接展示后端原因
+        message.error(err?.response?.data?.error || '密钥冲突');
+        refreshIPCheck();
+      } else {
+        message.error(getSafeErrorMessage(err, '上传失败'));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -692,11 +715,21 @@ export default function SecretManagement() {
 
             <Divider />
 
+            {ipAutoBlocked && (
+              <Alert
+                type="error"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message={`当前 IP（${ipCheck?.ip}）已有白名单密钥`}
+                description="同一 IP 只允许一条「IP 自动」密钥。请换到对应工作机上录入，或改用「点击审批」模式。"
+              />
+            )}
             <Form.Item>
               <Button
                 type="primary"
                 htmlType="submit"
                 loading={submitting}
+                disabled={ipAutoBlocked}
                 block
               >
                 提交

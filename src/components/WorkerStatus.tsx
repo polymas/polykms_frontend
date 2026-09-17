@@ -938,7 +938,7 @@ export default function WorkerStatus() {
 
       switch (fieldKey) {
         case 'ip':
-          return status.ip || '-';
+          return status.private_ip ? `${status.ip || '-'} / ${status.private_ip}` : (status.ip || '-');
         case 'key_name':
           return status.key_name || '-';
         case 'proxy_address':
@@ -1439,7 +1439,10 @@ export default function WorkerStatus() {
                           <tr>
                             {selectedFields.includes('ip') && (
                               <td>
-                                <span>{status.ip}</span>
+                                <div>{status.ip}</div>
+                                {status.private_ip && (
+                                  <div style={{ color: '#8c8c8c', fontSize: 12 }}>内网 {status.private_ip}</div>
+                                )}
                               </td>
                             )}
                             {selectedFields.includes('key_name') && (
