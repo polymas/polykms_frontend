@@ -166,13 +166,15 @@ export interface Secret {
   key_name: string;
   value?: string; // 加密后的密文（base64），兼容旧字段
   active?: boolean; // 是否激活
-  ip?: string; // IP地址
+  ip?: string; // IP地址（公网）
+  private_ip?: string; // 工作机 VPC 内网 IP
   proxy_address?: string; // 代理地址
   base_address?: string; // 基础地址
   private_key?: string; // 私钥（加密后）
   wallet_type?: string; // 钱包类型
   signature_type?: number; // 签名类型
   extra_info?: string; // 额外信息（JSON字符串）
+  tail_order_share?: number; // 尾盘下注份额（独立列）
   access_mode?: 'ip_auto' | 'approval'; // 放行模式：ip_auto=IP白名单自动放行，approval=必须点击审批
   created_at: string;
 }
@@ -188,6 +190,7 @@ export interface StoreSecretRequest {
   wallet_type?: string; // 钱包类型
   signature_type?: number; // 签名类型
   extra_info?: string; // 额外信息（JSON字符串）
+  tail_order_share?: number; // 尾盘下注份额 0-1000（写入独立列，不再放 extra_info）
   access_mode?: 'ip_auto' | 'approval'; // 放行模式，不传=ip_auto
 }
 
@@ -316,6 +319,7 @@ export interface WorkerStatus {
   key_name: string;
   active: boolean;
   ip: string;
+  private_ip?: string; // 工作机 VPC 内网 IP
   proxy_address?: string; // 代理地址
   wallet_type?: string; // 钱包类型
   status: 'online' | 'offline' | 'error';
@@ -324,7 +328,7 @@ export interface WorkerStatus {
   error_msg?: string;
   data?: string; // JSON字符串格式的业务数据（/status 接口返回）
   info_data?: string; // JSON字符串格式的静态信息（/info 接口返回）
-  tail_order_share?: number; // 尾盘下注份额（从 secret.extra_info 解析；未配置默认 100）
+  tail_order_share?: number; // 尾盘下注份额（secrets.tail_order_share；未配置默认 100）
   checked_at: string;
   created_at: string;
   updated_at: string; // 更新时间，用于判断是否在线

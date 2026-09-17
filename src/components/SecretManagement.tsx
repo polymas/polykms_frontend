@@ -243,9 +243,8 @@ export default function SecretManagement() {
         access_mode: values.access_mode || 'ip_auto',
       };
 
-      // ExtraInfo：子项 tail_order_share，默认 10，范围 0-1000
-      const tailOrderShare = Math.round(Number(values.tail_order_share ?? 10));
-      secretToUpload.extra_info = JSON.stringify({ tail_order_share: tailOrderShare });
+      // tail_order_share：默认 10，范围 0-1000，直接写入独立列
+      secretToUpload.tail_order_share = Math.round(Number(values.tail_order_share ?? 10));
 
       // 只加密需要后端加密存储的字段：private_key
       if (values.private_key) {
@@ -288,8 +287,9 @@ export default function SecretManagement() {
     return address;
   };
 
-  // 从 extra_info 解析 tail_order_share，默认 100
-  const parseTailOrderShare = (extraInfo?: string): number => {
+  // 取 tail_order_share：优先独立列，未回填时回退解析 extra_info，默认 100
+  const parseTailOrderShare = (extraInfo?: string, column?: number | null): number => {
+    if (typeof column === 'number' && Number.isFinite(column)) return Math.round(column);
     if (!extraInfo) return 100;
     try {
       const obj = JSON.parse(extraInfo);
@@ -306,7 +306,7 @@ export default function SecretManagement() {
     setEditingSecret(record);
     editForm.setFieldsValue({
       key_name: record.key_name || '',
-      tail_order_share: parseTailOrderShare(record.extra_info),
+      tail_order_share: parseTailOrderShare(record.extra_info, record.tail_order_share),
       access_mode: record.access_mode || 'ip_auto',
       reason: '',
     });
@@ -349,7 +349,7 @@ export default function SecretManagement() {
 
     return secrets.filter((item: any) => {
       const keyName = String(item?.key_name || '').toLowerCase();
-      const ip = String(item?.ip || '').toLowerCase();
+      const ip = `${item?.ip || ''} ${item?.private_ip || ''}`.toLowerCase();
       const baseAddress = String(item?.base_address || '').toLowerCase();
       const proxyAddress = String(item?.proxy_address || '').toLowerCase();
       const walletType = String(item?.wallet_type || '').toLowerCase();
@@ -377,7 +377,12 @@ export default function SecretManagement() {
       title: 'IP地址',
       dataIndex: 'ip',
       key: 'ip',
-      render: (text: string) => text || '-',
+      render: (text: string, record: any) => (
+        <span>
+          {text || '-'}
+          {record?.private_ip ? <div style={{ color: '#8c8c8c', fontSize: 12 }}>内网 {record.private_ip}</div> : null}
+        </span>
+      ),
       sorter: (a: any, b: any) => String(a.ip || '').localeCompare(String(b.ip || '')),
       sortDirections: ['ascend', 'descend'] as ('ascend' | 'descend')[],
     },
