@@ -190,7 +190,7 @@ export interface StoreSecretRequest {
   wallet_type?: string; // 钱包类型
   signature_type?: number; // 签名类型
   extra_info?: string; // 额外信息（JSON字符串）
-  tail_order_share?: number; // 尾盘下注份额 0-1000（写入独立列，不再放 extra_info）
+  tail_order_share?: number; // 尾盘下注份额 0-5000（写入独立列，不再放 extra_info）
   access_mode?: 'ip_auto' | 'approval'; // 放行模式，不传=ip_auto
 }
 

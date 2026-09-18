@@ -259,7 +259,7 @@ export default function SecretManagement() {
         access_mode: values.access_mode || 'ip_auto',
       };
 
-      // tail_order_share：默认 10，范围 0-1000，直接写入独立列
+      // tail_order_share：默认 10，范围 0-5000，直接写入独立列
       secretToUpload.tail_order_share = Math.round(Number(values.tail_order_share ?? 10));
 
       // 只加密需要后端加密存储的字段：private_key
@@ -695,15 +695,15 @@ export default function SecretManagement() {
                     {
                       type: 'number',
                       min: 0,
-                      max: 1000,
-                      message: '尾盘下注份额需为 0-1000 的整数',
+                      max: 5000,
+                      message: '尾盘下注份额需为 0-5000 的整数',
                     },
                   ]}
-                  tooltip="尾盘下注份额，0-1000 的整数，默认 10"
+                  tooltip="尾盘下注份额，0-5000 的整数，默认 10"
                 >
                   <InputNumber
                     min={0}
-                    max={1000}
+                    max={5000}
                     step={1}
                     precision={0}
                     placeholder="10"
@@ -811,10 +811,10 @@ export default function SecretManagement() {
                   name="tail_order_share"
                   rules={[
                     { required: true, message: '请输入尾盘下注份额' },
-                    { type: 'number', min: 0, max: 1000, message: '尾盘下注份额需为 0-1000 的整数' },
+                    { type: 'number', min: 0, max: 5000, message: '尾盘下注份额需为 0-5000 的整数' },
                   ]}
                 >
-                  <InputNumber min={0} max={1000} step={1} precision={0} style={{ width: '100%' }} />
+                  <InputNumber min={0} max={5000} step={1} precision={0} style={{ width: '100%' }} />
                 </Form.Item>
                 <Form.Item
                   label="放行模式"
