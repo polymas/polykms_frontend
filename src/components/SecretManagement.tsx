@@ -33,6 +33,15 @@ import { getRole } from '../utils/api';
 
 const { Text } = Typography;
 
+const IPV4_RE = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+
+/** 可选的 IP 输入校验：留空通过；IPv4 严格校验，IPv6 只做形状检查，最终以后端为准 */
+const validateOptionalIP = (_: unknown, value?: string) => {
+  const v = (value ?? '').trim();
+  if (!v || IPV4_RE.test(v) || (v.includes(':') && /^[0-9a-fA-F:.]+$/.test(v))) return Promise.resolve();
+  return Promise.reject(new Error('IP 格式不正确，例如 203.0.113.7'));
+};
+
 export default function SecretManagement() {
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
@@ -251,7 +260,8 @@ export default function SecretManagement() {
       const secretToUpload: StoreSecretRequest = {
         key_name: sanitizeInput(values.key_name),
         active: true, // 默认激活
-        ip: '', // IP地址不传，后端根据请求IP自动填写
+        // 白名单密钥：不传，后端取请求来源 IP。审批密钥：后端不会自动填，这里传用户填的识别用 IP（可空）
+        ip: values.access_mode === 'approval' ? String(values.worker_ip ?? '').trim() : '',
         proxy_address: proxyAddress || '', // 使用计算出的代理地址
         base_address: walletAddress || '', // 使用计算出的钱包地址作为基础地址
         wallet_type: values.wallet_type ? sanitizeInput(values.wallet_type) : getWalletTypeFromSignatureType(values.signature_type || 3),
@@ -331,6 +341,8 @@ export default function SecretManagement() {
       key_name: record.key_name || '',
       tail_order_share: parseTailOrderShare(record.extra_info, record.tail_order_share),
       access_mode: record.access_mode || 'ip_auto',
+      ip: record.ip || '',
+      private_ip: record.private_ip || '',
       reason: '',
     });
     setEditModalVisible(true);
@@ -349,6 +361,11 @@ export default function SecretManagement() {
         access_mode: values.access_mode,
         reason: values.reason ? sanitizeInput(values.reason) : undefined,
       };
+      // IP 只在改动时提交：后端对「不传」按不变处理，只改名称 / 份额时不会触发 IP 唯一性校验
+      const nextIP = String(values.ip ?? '').trim();
+      const nextPrivateIP = String(values.private_ip ?? '').trim();
+      if (nextIP !== (editingSecret.ip || '')) updateData.ip = nextIP;
+      if (nextPrivateIP !== (editingSecret.private_ip || '')) updateData.private_ip = nextPrivateIP;
 
       await secretsAPI.updateSecretMeta(editingSecret.id, updateData);
       message.success('密钥信息更新成功');
@@ -625,13 +642,23 @@ export default function SecretManagement() {
                 <Form.Item
                   label="放行模式"
                   name="access_mode"
-                  extra="IP 自动：worker 从绑定 IP 拉取即放行。点击审批：不看 IP，每次取私钥都要在 Telegram 审批群点击同意。"
+                  extra="IP 自动：worker 从绑定 IP 拉取即放行。点击审批：每次取私钥都要在 Telegram 审批群点击同意，登记的 IP 只用来识别机器。"
                 >
                   <Radio.Group>
                     <Radio.Button value="ip_auto">IP 自动</Radio.Button>
                     <Radio.Button value="approval">点击审批</Radio.Button>
                   </Radio.Group>
                 </Form.Item>
+                {accessModeValue === 'approval' && (
+                  <Form.Item
+                    label="工作机 IP（可选）"
+                    name="worker_ip"
+                    rules={[{ validator: validateOptionalIP }]}
+                    extra="KMS 看到的这台机器的来源地址。填了它才能推送状态、出现在工作机监控、计入尾盘份额分母；不参与私钥放行，取私钥仍需点审批。同一台机器上的多个账号填同一个 IP。不填可稍后在编辑里补。"
+                  >
+                    <Input placeholder="例如 203.0.113.7" maxLength={45} autoComplete="off" />
+                  </Form.Item>
+                )}
                 <Form.Item
                   label="签名类型"
                   name="signature_type"
@@ -819,12 +846,28 @@ export default function SecretManagement() {
                 <Form.Item
                   label="放行模式"
                   name="access_mode"
-                  extra="IP 自动：worker 从绑定 IP 拉取即放行。点击审批：不看 IP，每次取私钥都要在 Telegram 审批群点击同意。"
+                  extra="IP 自动：worker 从绑定 IP 拉取即放行。点击审批：每次取私钥都要在 Telegram 审批群点击同意，登记的 IP 只用来识别机器。"
                 >
                   <Radio.Group>
                     <Radio.Button value="ip_auto">IP 自动</Radio.Button>
                     <Radio.Button value="approval">点击审批</Radio.Button>
                   </Radio.Group>
+                </Form.Item>
+                <Form.Item
+                  label="公网 IP"
+                  name="ip"
+                  rules={[{ validator: validateOptionalIP }]}
+                  extra="worker 走公网域名（经 Cloudflare）访问时 KMS 看到的来源地址。IP 自动的密钥必须独占 IP；点击审批的密钥之间可以共用（一个进程管多个账号时，每个账号都填这台机器的 IP）。"
+                >
+                  <Input placeholder="例如 203.0.113.7；留空表示不登记" maxLength={45} autoComplete="off" />
+                </Form.Item>
+                <Form.Item
+                  label="内网 IP"
+                  name="private_ip"
+                  rules={[{ validator: validateOptionalIP }]}
+                  extra="worker 走内网域名访问时的来源地址；不和 KMS 在同一内网就留空。"
+                >
+                  <Input placeholder="例如 10.0.6.12；留空表示不登记" maxLength={45} autoComplete="off" />
                 </Form.Item>
                 <Form.Item label="变更原因（可选）" name="reason">
                   <Input.TextArea rows={3} maxLength={500} placeholder="用于审计日志，建议填写本次修改原因" />

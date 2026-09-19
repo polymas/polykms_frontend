@@ -148,7 +148,14 @@ function GroupBlock({ group }: { group: ShareSnapshotGroup }) {
                 )}
                 {members.map((m) => (
                   <tr key={m.secret_id}>
-                    <td>{m.key_name || `#${m.secret_id}`}</td>
+                    <td>
+                      {m.key_name || `#${m.secret_id}`}
+                      {(m.accounts ?? 0) > 1 && (
+                        <Tooltip title="一个进程管多个账号：共用同一 IP 的一组点击审批密钥算一台机器，份额是各账号之和，这一行用其中 ID 最小的密钥代表整机">
+                          <span className="share-accounts">整机 {m.accounts} 个账号</span>
+                        </Tooltip>
+                      )}
+                    </td>
                     <td className="share-num">{fmtShare(m.share)}</td>
                     <td className="share-num">{total > 0 ? fmtPercent(m.share / total) : '-'}</td>
                     <td>

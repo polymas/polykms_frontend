@@ -210,6 +210,9 @@ export interface UpdateSecretMetaRequest {
   key_name: string;
   tail_order_share: number;
   access_mode?: 'ip_auto' | 'approval'; // 不传则不变
+  /** 工作机公网 / 内网 IP：不传=不变，传空串=清空。只用来识别机器；审批模式下不参与私钥放行 */
+  ip?: string;
+  private_ip?: string;
   reason?: string;
 }
 
@@ -218,6 +221,8 @@ export interface UpdateSecretMetaResponse {
   key_name: string;
   tail_order_share: number;
   access_mode: string;
+  ip: string;
+  private_ip: string;
   updated_at: string;
   message: string;
 }
@@ -406,6 +411,8 @@ export interface ShareSnapshotMember {
   share: number;
   /** 老版本 worker：没有上报 strategies，按配置份额估算计入 */
   estimated?: boolean;
+  /** 这台机器承载的账号数（共用同一 IP 的一组点击审批密钥）；单账号机器不返回 */
+  accounts?: number;
 }
 
 export interface ShareSnapshotExcluded {
