@@ -3,6 +3,7 @@ import { Button, Space, Tag, Tooltip, Spin, Switch } from 'antd';
 import { ReloadOutlined, CopyOutlined, DownloadOutlined } from '@ant-design/icons';
 import { sharddbAPI, workersAPI, WorkerStatus as WorkerStatusType } from '../utils/api';
 import { secureLog } from '../utils/security';
+import StrategySharePanel from './StrategySharePanel';
 import './WorkerStatus.css';
 
 /**
@@ -1037,6 +1038,9 @@ export default function WorkerStatus() {
           <span className="stat-value">{stats.totalBalance.toFixed(2)}</span>
         </div>
       </div>
+
+      {/* 策略下注份额：live / 兜底分母与成员构成（仅管理员接口，取不到时不渲染） */}
+      <StrategySharePanel />
 
       <div className="main-layout">
         {/* 主内容区域 - 表格 */}

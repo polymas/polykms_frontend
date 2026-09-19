@@ -399,7 +399,56 @@ export const secretsAPI = {
   },
 };
 
+// 策略下注份额快照（GET /api/v1/workers/share-ratios，仅管理员）
+export interface ShareSnapshotMember {
+  secret_id: number;
+  key_name: string;
+  share: number;
+  /** 老版本 worker：没有上报 strategies，按配置份额估算计入 */
+  estimated?: boolean;
+}
+
+export interface ShareSnapshotExcluded {
+  secret_id: number;
+  key_name?: string;
+  share: number;
+  /** inactive / not_online / pending / not_reported */
+  reason: string;
+}
+
+export interface ShareSnapshotGroup {
+  strategy_group: string;
+  /** live 分母 = 真实上报份额 + 估算计入份额 */
+  total_share: number;
+  /** 兜底分母 = 分组内 active=1 机器的配置份额之和（含离线）；无配置来源为 0 */
+  default_total_share: number;
+  estimated_share: number;
+  /** 真实上报份额之和，以及这些机器的配置份额之和；两者应接近，偏差大说明量纲不一致 */
+  reported_share: number;
+  reported_config_share: number;
+  members: ShareSnapshotMember[];
+  excluded?: ShareSnapshotExcluded[];
+}
+
+export interface StrategyShareSnapshot {
+  /** 不在预热期且快照未过期；false 时 worker 不使用 ratio，改用兜底分母 */
+  ready: boolean;
+  warmup?: boolean;
+  computed_at?: string;
+  groups?: Record<string, ShareSnapshotGroup>;
+  /** 快照尚未生成时后端只返回 ready=false 与 message */
+  message?: string;
+}
+
 export const workersAPI = {
+  /**
+   * 策略下注份额快照：各分组的 live / 兜底分母、计入与未计入的机器（仅管理员）
+   */
+  getShareSnapshot: async (): Promise<StrategyShareSnapshot> => {
+    const response = await api.get<StrategyShareSnapshot>('/api/v1/workers/share-ratios');
+    return response.data;
+  },
+
   /**
    * 获取所有工作机的最新状态
    * @param hideOffline 如果为true，后端会过滤掉所有离线机器（包括error状态）

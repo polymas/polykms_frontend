@@ -921,3 +921,274 @@
 .worker-status-table thead .active-control-header {
   z-index: 3;
 }
+
+/* ───────── 策略份额面板（StrategySharePanel）─────────
+   沿用本页 --ws-* 变量；全部限定在 .worker-status-container 下，不影响其他页面。 */
+.worker-status-container .share-panel {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  background: var(--ws-surface);
+  border: 1px solid var(--ws-border);
+  border-radius: 12px;
+  color: var(--ws-text);
+}
+
+.worker-status-container .share-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.worker-status-container .share-panel-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.worker-status-container .share-panel-hint {
+  font-size: 0.8rem;
+  color: var(--ws-muted);
+}
+
+.worker-status-container .share-panel-time {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--ws-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.worker-status-container .share-stale {
+  color: var(--ws-amber);
+}
+
+.worker-status-container .share-empty {
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+  color: var(--ws-muted);
+  max-width: 70ch;
+}
+
+.worker-status-container .share-group {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ws-border);
+}
+
+.worker-status-container .share-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 28px;
+}
+
+.worker-status-container .share-group-name {
+  margin: 0;
+  min-width: 96px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ws-accent);
+}
+
+.worker-status-container .share-group-alias {
+  margin-left: 8px;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--ws-muted);
+}
+
+.worker-status-container .share-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin: 0;
+}
+
+.worker-status-container .share-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.worker-status-container .share-metric dt {
+  font-size: 0.72rem;
+  color: var(--ws-muted);
+  cursor: default;
+}
+
+.worker-status-container .share-metric dt span {
+  border-bottom: 1px dotted var(--ws-border);
+}
+
+.worker-status-container .share-metric dd {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.worker-status-container .share-metric-note {
+  margin-left: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--ws-amber);
+}
+
+.worker-status-container .share-muted {
+  color: var(--ws-muted);
+  font-weight: 500;
+}
+
+/* 占比条：满格 = 兜底分母；实色 = 真实上报，斜纹 = 估算，留白 = 配置了但未在线 */
+.worker-status-container .share-bar-wrap {
+  margin-top: 10px;
+}
+
+.worker-status-container .share-bar {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--ws-surface-elevated);
+  border: 1px solid var(--ws-border);
+}
+
+.worker-status-container .share-bar-seg {
+  display: block;
+  height: 100%;
+  min-width: 0;
+}
+
+.worker-status-container .share-bar-reported {
+  background: var(--ws-green);
+}
+
+.worker-status-container .share-bar-estimated {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--ws-amber) 0 4px,
+    rgba(217, 119, 6, 0.45) 4px 8px
+  );
+}
+
+.worker-status-container .share-bar-idle {
+  background: var(--ws-surface-elevated);
+  border: 1px solid var(--ws-border);
+}
+
+.worker-status-container .share-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.76rem;
+  color: var(--ws-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.worker-status-container .share-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.worker-status-container .share-warning {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #7f1d1d;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  max-width: 90ch;
+}
+
+.worker-status-container .share-details {
+  margin-top: 10px;
+}
+
+.worker-status-container .share-details > summary {
+  display: inline-block;
+  padding: 2px 0;
+  font-size: 0.8rem;
+  color: var(--ws-accent);
+  cursor: pointer;
+  user-select: none;
+}
+
+.worker-status-container .share-details > summary:focus-visible {
+  outline: 2px solid var(--ws-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.worker-status-container .share-tables {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: start; /* 两张表各按自己的内容定高，短的那张不被拉伸 */
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.worker-status-container .share-table-scroll {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--ws-border);
+  border-radius: 8px;
+}
+
+.worker-status-container .share-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.worker-status-container .share-table caption {
+  caption-side: top; /* antd reset.css 把 caption 放到了表格下方 */
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ws-muted);
+  background: var(--ws-surface-elevated);
+  border-bottom: 1px solid var(--ws-border);
+}
+
+.worker-status-container .share-table th,
+.worker-status-container .share-table td {
+  padding: 5px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--ws-border);
+  white-space: nowrap;
+}
+
+.worker-status-container .share-table th {
+  position: sticky;
+  top: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ws-muted);
+  background: var(--ws-surface-elevated);
+}
+
+.worker-status-container .share-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.worker-status-container .share-table .share-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.worker-status-container .share-table .share-empty-cell {
+  text-align: center;
+  color: var(--ws-muted);
+}
